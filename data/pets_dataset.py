@@ -136,12 +136,12 @@ class OxfordPetDataset(Dataset):
         bbox = self.bbox_lookup.get(sample['image_name'], None)
 
         if self.transform is not None:
-            if self.task in ['localization', 'multitask'] and bbox is not None:
-                bbox_pascal = self._xywh_to_pascal_voc(bbox)
+            if self.task in ['localization', 'multitask']:
+                bbox_pascal = self._xywh_to_pascal_voc(bbox) if bbox is not None else None
                 transform_kwargs = {
                     'image': image,
-                    'bboxes': [bbox_pascal],
-                    'bbox_labels': [sample['class_idx']],
+                    'bboxes': [bbox_pascal] if bbox_pascal is not None else [],
+                    'bbox_labels': [sample['class_idx']] if bbox_pascal is not None else [],
                 }
 
                 if self.task == 'multitask' and mask is not None:
