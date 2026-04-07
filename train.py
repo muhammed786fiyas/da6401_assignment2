@@ -3,10 +3,8 @@ import argparse
 import torch
 import torch.nn as nn
 import wandb
-from torch.optim import Adam
-from torch.optim.lr_scheduler import StepLR
-from sklearn.metrics import f1_score
 import numpy as np
+from sklearn.metrics import f1_score
 
 from data.pets_dataset import get_dataloaders
 from models.classification import PetClassifier
@@ -24,7 +22,6 @@ def compute_f1(preds, labels):
 
 
 def compute_iou_score(pred, target):
-    """Compute mean IoU score (not loss) for logging."""
     pred_x1 = pred[:, 0] - pred[:, 2] / 2
     pred_y1 = pred[:, 1] - pred[:, 3] / 2
     pred_x2 = pred[:, 0] + pred[:, 2] / 2
@@ -40,33 +37,28 @@ def compute_iou_score(pred, target):
     inter_x2 = torch.min(pred_x2, target_x2)
     inter_y2 = torch.min(pred_y2, target_y2)
 
-    inter_w = (inter_x2 - inter_x1).clamp(min=0)
-    inter_h = (inter_y2 - inter_y1).clamp(min=0)
+    inter_w      = (inter_x2 - inter_x1).clamp(min=0)
+    inter_h      = (inter_y2 - inter_y1).clamp(min=0)
     intersection = inter_w * inter_h
 
     pred_area   = (pred_x2 - pred_x1).clamp(min=0) * (pred_y2 - pred_y1).clamp(min=0)
     target_area = (target_x2 - target_x1).clamp(min=0) * (target_y2 - target_y1).clamp(min=0)
-    union = pred_area + target_area - intersection
+    union       = pred_area + target_area - intersection
 
-    iou = (intersection / (union + 1e-6)).mean().item()
-    return iou
+    return (intersection / (union + 1e-6)).mean().item()
 
 
 def compute_dice(pred_mask, true_mask, num_classes=3):
-    """Compute mean Dice score across classes."""
     dice_scores = []
-    pred_mask = pred_mask.cpu().numpy()
-    true_mask = true_mask.cpu().numpy()
+    pred_mask   = pred_mask.cpu().numpy()
+    true_mask   = true_mask.cpu().numpy()
 
     for c in range(num_classes):
-        pred_c = (pred_mask == c).astype(np.float32)
-        true_c = (true_mask == c).astype(np.float32)
-        intersection = (pred_c * true_c).sum()
-        union = pred_c.sum() + true_c.sum()
-        if union == 0:
-            dice_scores.append(1.0)
-        else:
-            dice_scores.append(2 * intersection / union)
+        pred_c        = (pred_mask == c).astype(np.float32)
+        true_c        = (true_mask == c).astype(np.float32)
+        intersection  = (pred_c * true_c).sum()
+        union         = pred_c.sum() + true_c.sum()
+        dice_scores.append(1.0 if union == 0 else 2 * intersection / union)
 
     return np.mean(dice_scores)
 
@@ -76,7 +68,11 @@ def compute_dice(pred_mask, true_mask, num_classes=3):
 # ─────────────────────────────────────────────
 
 def train_classifier(args):
-    wandb.init(project=args.wandb_project, name='task1_classification', config=vars(args))
+    wandb.init(
+        project = args.wandb_project,
+        name    = 'task1_classification',
+        config  = vars(args)
+    )
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -89,17 +85,28 @@ def train_classifier(args):
     )
 
     model     = PetClassifier(num_classes=37, dropout_p=args.dropout_p).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = StepLR(optimizer, step_size=7, gamma=0.1)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+
+    # differential learning rates — backbone gets 10x smaller lr
+    optimizer = torch.optim.AdamW([
+        {'params': model.model.features.parameters(),   'lr': args.lr * 0.1},
+        {'params': model.model.classifier.parameters(), 'lr': args.lr}
+    ], weight_decay=args.weight_decay)
+
+    scheduler  = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=1e-6
+    )
 
     best_val_f1 = 0.0
+    no_improve  = 0
+    patience    = 10
 
     for epoch in range(args.epochs):
+
         # ── train ──
         model.train()
-        train_loss = 0.0
-        all_preds, all_labels = [], []
+        train_loss             = 0.0
+        all_preds, all_labels  = [], []
 
         for images, labels in train_loader:
             images, labels = images.to(device), labels.to(device)
@@ -108,11 +115,12 @@ def train_classifier(args):
             outputs = model(images)
             loss    = criterion(outputs, labels)
             loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss.item()
-            preds = outputs.argmax(dim=1).cpu().numpy()
-            all_preds.extend(preds)
+            all_preds.extend(outputs.argmax(dim=1).cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
         train_loss /= len(train_loader)
@@ -120,17 +128,15 @@ def train_classifier(args):
 
         # ── val ──
         model.eval()
-        val_loss = 0.0
-        val_preds, val_labels = [], []
+        val_loss               = 0.0
+        val_preds, val_labels  = [], []
 
         with torch.no_grad():
             for images, labels in val_loader:
                 images, labels = images.to(device), labels.to(device)
-                outputs  = model(images)
-                loss     = criterion(outputs, labels)
-                val_loss += loss.item()
-                preds = outputs.argmax(dim=1).cpu().numpy()
-                val_preds.extend(preds)
+                outputs        = model(images)
+                val_loss      += criterion(outputs, labels).item()
+                val_preds.extend(outputs.argmax(dim=1).cpu().numpy())
                 val_labels.extend(labels.cpu().numpy())
 
         val_loss /= len(val_loader)
@@ -148,20 +154,25 @@ def train_classifier(args):
             'train/f1'   : train_f1,
             'val/loss'   : val_loss,
             'val/f1'     : val_f1,
-            'lr'         : optimizer.param_groups[0]['lr']
+            'lr'         : optimizer.param_groups[1]['lr']
         })
 
-        # save best model
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
+            no_improve  = 0
             os.makedirs('checkpoints', exist_ok=True)
             torch.save({
-                'epoch'            : epoch + 1,
-                'model_state_dict' : model.state_dict(),
+                'epoch'               : epoch + 1,
+                'model_state_dict'    : model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'val_f1'           : val_f1,
+                'val_f1'              : val_f1,
             }, 'checkpoints/classifier.pth')
             print(f"  Saved best classifier (val_f1={val_f1:.4f})")
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
 
     wandb.finish()
     print(f"Task 1 done. Best Val F1: {best_val_f1:.4f}")
@@ -172,7 +183,11 @@ def train_classifier(args):
 # ─────────────────────────────────────────────
 
 def train_localizer(args):
-    wandb.init(project=args.wandb_project, name='task2_localization', config=vars(args))
+    wandb.init(
+        project = args.wandb_project,
+        name    = 'task2_localization',
+        config  = vars(args)
+    )
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -188,18 +203,27 @@ def train_localizer(args):
         freeze_backbone = args.freeze_backbone
     ).to(device)
 
-    # load pretrained backbone from classifier
     if os.path.exists('checkpoints/classifier.pth'):
         model.load_backbone('checkpoints/classifier.pth')
 
-    mse_loss = nn.MSELoss()
-    iou_loss = IoULoss(reduction='mean')
-    optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = StepLR(optimizer, step_size=7, gamma=0.1)
+    mse_loss  = nn.MSELoss()
+    iou_loss  = IoULoss(reduction='mean')
+
+    optimizer = torch.optim.AdamW([
+        {'params': model.features.parameters(),   'lr': args.lr * 0.1},
+        {'params': model.regressor.parameters(),  'lr': args.lr}
+    ], weight_decay=args.weight_decay)
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=1e-6
+    )
 
     best_val_iou = 0.0
+    no_improve   = 0
+    patience     = 10
 
     for epoch in range(args.epochs):
+
         # ── train ──
         model.train()
         train_loss = 0.0
@@ -211,9 +235,10 @@ def train_localizer(args):
 
             optimizer.zero_grad()
             preds = model(images)
-
-            loss = mse_loss(preds, bboxes) + iou_loss(preds, bboxes)
+            loss  = mse_loss(preds, bboxes) + iou_loss(preds, bboxes)
             loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss.item()
@@ -229,12 +254,10 @@ def train_localizer(args):
 
         with torch.no_grad():
             for images, bboxes in val_loader:
-                images = images.to(device)
-                bboxes = bboxes.to(device)
-                preds  = model(images)
-
-                loss     = mse_loss(preds, bboxes) + iou_loss(preds, bboxes)
-                val_loss += loss.item()
+                images   = images.to(device)
+                bboxes   = bboxes.to(device)
+                preds    = model(images)
+                val_loss += (mse_loss(preds, bboxes) + iou_loss(preds, bboxes)).item()
                 val_iou  += compute_iou_score(preds, bboxes)
 
         val_loss /= len(val_loader)
@@ -252,11 +275,12 @@ def train_localizer(args):
             'train/iou'  : train_iou,
             'val/loss'   : val_loss,
             'val/iou'    : val_iou,
-            'lr'         : optimizer.param_groups[0]['lr']
+            'lr'         : optimizer.param_groups[1]['lr']
         })
 
         if val_iou > best_val_iou:
             best_val_iou = val_iou
+            no_improve   = 0
             torch.save({
                 'epoch'               : epoch + 1,
                 'model_state_dict'    : model.state_dict(),
@@ -264,6 +288,11 @@ def train_localizer(args):
                 'val_iou'             : val_iou,
             }, 'checkpoints/localizer.pth')
             print(f"  Saved best localizer (val_iou={val_iou:.4f})")
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
 
     wandb.finish()
     print(f"Task 2 done. Best Val IoU: {best_val_iou:.4f}")
@@ -274,7 +303,11 @@ def train_localizer(args):
 # ─────────────────────────────────────────────
 
 def train_segmentor(args):
-    wandb.init(project=args.wandb_project, name='task3_segmentation', config=vars(args))
+    wandb.init(
+        project = args.wandb_project,
+        name    = 'task3_segmentation',
+        config  = vars(args)
+    )
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -294,14 +327,28 @@ def train_segmentor(args):
     if os.path.exists('checkpoints/classifier.pth'):
         model.load_backbone('checkpoints/classifier.pth')
 
-    # CrossEntropyLoss for 3-class segmentation
     criterion = nn.CrossEntropyLoss()
-    optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = StepLR(optimizer, step_size=7, gamma=0.1)
+
+    optimizer = torch.optim.AdamW([
+        {'params': model.encoder.parameters(), 'lr': args.lr * 0.1},
+        {'params': model.decoder4.parameters(), 'lr': args.lr},
+        {'params': model.decoder3.parameters(), 'lr': args.lr},
+        {'params': model.decoder2.parameters(), 'lr': args.lr},
+        {'params': model.decoder1.parameters(), 'lr': args.lr},
+        {'params': model.final_upsample.parameters(), 'lr': args.lr},
+        {'params': model.output_conv.parameters(), 'lr': args.lr},
+    ], weight_decay=args.weight_decay)
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=1e-6
+    )
 
     best_val_dice = 0.0
+    no_improve    = 0
+    patience      = 10
 
     for epoch in range(args.epochs):
+
         # ── train ──
         model.train()
         train_loss = 0.0
@@ -315,32 +362,30 @@ def train_segmentor(args):
             outputs = model(images)
             loss    = criterion(outputs, masks)
             loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss.item()
-            pred_masks  = outputs.argmax(dim=1)
-            train_dice += compute_dice(pred_masks, masks)
+            train_dice += compute_dice(outputs.argmax(dim=1), masks)
 
         train_loss /= len(train_loader)
         train_dice /= len(train_loader)
 
         # ── val ──
         model.eval()
-        val_loss = 0.0
-        val_dice = 0.0
+        val_loss      = 0.0
+        val_dice      = 0.0
         val_pixel_acc = 0.0
 
         with torch.no_grad():
             for images, masks in val_loader:
-                images = images.to(device)
-                masks  = masks.to(device)
-                outputs = model(images)
-
-                loss      = criterion(outputs, masks)
-                val_loss += loss.item()
-
-                pred_masks    = outputs.argmax(dim=1)
-                val_dice     += compute_dice(pred_masks, masks)
+                images      = images.to(device)
+                masks       = masks.to(device)
+                outputs     = model(images)
+                val_loss   += criterion(outputs, masks).item()
+                pred_masks  = outputs.argmax(dim=1)
+                val_dice   += compute_dice(pred_masks, masks)
                 val_pixel_acc += (pred_masks == masks).float().mean().item()
 
         val_loss      /= len(val_loader)
@@ -355,17 +400,18 @@ def train_segmentor(args):
               f"Val Pixel Acc: {val_pixel_acc:.4f}")
 
         wandb.log({
-            'epoch'          : epoch + 1,
-            'train/loss'     : train_loss,
-            'train/dice'     : train_dice,
-            'val/loss'       : val_loss,
-            'val/dice'       : val_dice,
-            'val/pixel_acc'  : val_pixel_acc,
-            'lr'             : optimizer.param_groups[0]['lr']
+            'epoch'         : epoch + 1,
+            'train/loss'    : train_loss,
+            'train/dice'    : train_dice,
+            'val/loss'      : val_loss,
+            'val/dice'      : val_dice,
+            'val/pixel_acc' : val_pixel_acc,
+            'lr'            : optimizer.param_groups[1]['lr']
         })
 
         if val_dice > best_val_dice:
             best_val_dice = val_dice
+            no_improve    = 0
             torch.save({
                 'epoch'               : epoch + 1,
                 'model_state_dict'    : model.state_dict(),
@@ -373,6 +419,11 @@ def train_segmentor(args):
                 'val_dice'            : val_dice,
             }, 'checkpoints/unet.pth')
             print(f"  Saved best segmentor (val_dice={val_dice:.4f})")
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
 
     wandb.finish()
     print(f"Task 3 done. Best Val Dice: {best_val_dice:.4f}")
@@ -386,16 +437,15 @@ def parse_args():
     parser = argparse.ArgumentParser(description='DA6401 Assignment 2 Training')
 
     parser.add_argument('--task',            type=str,   default='classification',
-                        choices=['classification', 'localization', 'segmentation'],
-                        help='which task to train')
+                        choices=['classification', 'localization', 'segmentation'])
     parser.add_argument('--data_dir',        type=str,   default='./data/oxford-iiit-pet')
-    parser.add_argument('--epochs',          type=int,   default=20)
-    parser.add_argument('--batch_size',      type=int,   default=32)
-    parser.add_argument('--lr',              type=float, default=1e-4)
+    parser.add_argument('--epochs',          type=int,   default=50)
+    parser.add_argument('--batch_size',      type=int,   default=64)
+    parser.add_argument('--lr',              type=float, default=3e-4)
     parser.add_argument('--weight_decay',    type=float, default=1e-4)
-    parser.add_argument('--dropout_p',       type=float, default=0.5)
+    parser.add_argument('--dropout_p',       type=float, default=0.4)
     parser.add_argument('--freeze_backbone', action='store_true')
-    parser.add_argument('--num_workers',     type=int,   default=4)
+    parser.add_argument('--num_workers',     type=int,   default=2)
     parser.add_argument('--wandb_project',   type=str,   default='da6401-assignment2')
 
     return parser.parse_args()

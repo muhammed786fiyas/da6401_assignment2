@@ -78,7 +78,7 @@ class VGG11(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.xavier_uniform_(m.weight)   # better than normal init
                 nn.init.constant_(m.bias, 0)
 
     def get_features(self):
@@ -91,13 +91,11 @@ class VGG11Encoder(nn.Module):
 
         blocks = list(vgg11.features.children())
 
-        # Each block ends at a MaxPool2d
-        # We split features into 5 encoder stages for skip connections in UNet
-        self.block1 = nn.Sequential(*blocks[0:4])    # conv1 + pool  → 64ch,  112x112
-        self.block2 = nn.Sequential(*blocks[4:8])    # conv2 + pool  → 128ch, 56x56
-        self.block3 = nn.Sequential(*blocks[8:15])   # conv3,4 + pool → 256ch, 28x28
-        self.block4 = nn.Sequential(*blocks[15:22])  # conv5,6 + pool → 512ch, 14x14
-        self.block5 = nn.Sequential(*blocks[22:])    # conv7,8 + pool → 512ch, 7x7
+        self.block1 = nn.Sequential(*blocks[0:4])
+        self.block2 = nn.Sequential(*blocks[4:8])
+        self.block3 = nn.Sequential(*blocks[8:15])
+        self.block4 = nn.Sequential(*blocks[15:22])
+        self.block5 = nn.Sequential(*blocks[22:])
 
     def forward(self, x):
         s1 = self.block1(x)
@@ -106,4 +104,3 @@ class VGG11Encoder(nn.Module):
         s4 = self.block4(s3)
         s5 = self.block5(s4)
         return s1, s2, s3, s4, s5
-    
