@@ -159,20 +159,8 @@ def get_transforms(split='train', image_size=224):
             A.Resize(image_size, image_size),
             A.HorizontalFlip(p=0.5),
             A.RandomBrightnessContrast(p=0.4),
-            A.Rotate(limit=20, p=0.4),
-            A.Affine(
-                translate_percent=0.1,
-                scale=(0.8, 1.2),
-                rotate=(-15, 15),
-                p=0.4
-            ),
+            A.Rotate(limit=15, p=0.3),
             A.HueSaturationValue(p=0.3),
-            A.CoarseDropout(
-                num_holes_range=(1, 8),
-                hole_height_range=(16, 32),
-                hole_width_range=(16, 32),
-                p=0.3
-            ),
             A.Normalize(
                 mean=[0.485, 0.456, 0.406],
                 std =[0.229, 0.224, 0.225]

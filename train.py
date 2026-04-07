@@ -85,13 +85,14 @@ def train_classifier(args):
     )
 
     model     = PetClassifier(num_classes=37, dropout_p=args.dropout_p).to(device)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
 
-    # differential learning rates — backbone gets 10x smaller lr
-    optimizer = torch.optim.AdamW([
-        {'params': model.model.features.parameters(),   'lr': args.lr * 0.1},
-        {'params': model.model.classifier.parameters(), 'lr': args.lr}
-    ], weight_decay=args.weight_decay)
+    # single lr for all params — model is trained from scratch, differential lr is only for fine-tuning
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr           = args.lr,
+        weight_decay = args.weight_decay
+    )
 
     scheduler  = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6
