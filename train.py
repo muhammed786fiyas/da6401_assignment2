@@ -329,16 +329,11 @@ def train_segmentor(args):
 
     criterion = nn.CrossEntropyLoss()
 
-    optimizer = torch.optim.AdamW([
-        {'params': model.encoder.parameters(), 'lr': args.lr * 0.1},
-        {'params': model.decoder4.parameters(), 'lr': args.lr},
-        {'params': model.decoder3.parameters(), 'lr': args.lr},
-        {'params': model.decoder2.parameters(), 'lr': args.lr},
-        {'params': model.decoder1.parameters(), 'lr': args.lr},
-        {'params': model.final_upsample.parameters(), 'lr': args.lr},
-        {'params': model.output_conv.parameters(), 'lr': args.lr},
-    ], weight_decay=args.weight_decay)
-
+    optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr           = args.lr,
+            weight_decay = args.weight_decay
+    )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6
     )
