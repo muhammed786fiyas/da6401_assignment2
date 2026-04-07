@@ -99,10 +99,32 @@ def train_classifier(args):
     )
 
     best_val_f1 = 0.0
-    no_improve  = 0
-    patience    = 10
+    start_epoch = 0
 
-    for epoch in range(args.epochs):
+    if args.resume_classifier:
+        if os.path.exists(args.resume_classifier):
+            ckpt = torch.load(args.resume_classifier, map_location=device)
+            model.load_state_dict(ckpt['model_state_dict'])
+            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+
+            start_epoch = ckpt.get('epoch', 0)
+            best_val_f1 = ckpt.get('val_f1', 0.0)
+
+            if 'scheduler_state_dict' in ckpt:
+                scheduler.load_state_dict(ckpt['scheduler_state_dict'])
+            else:
+                # Backward-compatible resume for older checkpoints.
+                for _ in range(start_epoch):
+                    scheduler.step()
+
+            print(f"Resumed classifier from {args.resume_classifier} at epoch {start_epoch} (best_val_f1={best_val_f1:.4f})")
+        else:
+            print(f"Resume checkpoint not found: {args.resume_classifier}. Starting from scratch.")
+
+    no_improve = 0
+    patience   = 10
+
+    for epoch in range(start_epoch, args.epochs):
 
         # ── train ──
         model.train()
@@ -158,14 +180,24 @@ def train_classifier(args):
             'lr'         : optimizer.param_groups[0]['lr']
         })
 
+        # Always save latest state for seamless continuation after fixed epoch budgets.
+        os.makedirs('checkpoints', exist_ok=True)
+        torch.save({
+            'epoch'               : epoch + 1,
+            'model_state_dict'    : model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'val_f1'              : val_f1,
+        }, 'checkpoints/classifier_last.pth')
+
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             no_improve  = 0
-            os.makedirs('checkpoints', exist_ok=True)
             torch.save({
                 'epoch'               : epoch + 1,
                 'model_state_dict'    : model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'val_f1'              : val_f1,
             }, 'checkpoints/classifier.pth')
             print(f"  Saved best classifier (val_f1={val_f1:.4f})")
@@ -453,6 +485,7 @@ def parse_args():
     parser.add_argument('--freeze_backbone', action='store_true')
     parser.add_argument('--num_workers',     type=int,   default=2)
     parser.add_argument('--wandb_project',   type=str,   default='da6401-assignment2')
+    parser.add_argument('--resume_classifier', type=str, default='')
 
     return parser.parse_args()
 
