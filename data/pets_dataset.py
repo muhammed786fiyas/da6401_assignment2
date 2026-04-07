@@ -108,6 +108,22 @@ class OxfordPetDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
+    def _xywh_to_pascal_voc(self, bbox):
+        x_center, y_center, width, height = bbox
+        xmin = x_center - width / 2
+        ymin = y_center - height / 2
+        xmax = x_center + width / 2
+        ymax = y_center + height / 2
+        return [xmin, ymin, xmax, ymax]
+
+    def _pascal_voc_to_xywh(self, bbox):
+        xmin, ymin, xmax, ymax = bbox
+        x_center = (xmin + xmax) / 2
+        y_center = (ymin + ymax) / 2
+        width    = xmax - xmin
+        height   = ymax - ymin
+        return [x_center, y_center, width, height]
+
     def __getitem__(self, idx):
         sample = self.samples[idx]
         image  = np.array(Image.open(sample['img_path']).convert('RGB'))
@@ -120,7 +136,28 @@ class OxfordPetDataset(Dataset):
         bbox = self.bbox_lookup.get(sample['image_name'], None)
 
         if self.transform is not None:
-            if mask is not None:
+            if self.task in ['localization', 'multitask'] and bbox is not None:
+                bbox_pascal = self._xywh_to_pascal_voc(bbox)
+                transform_kwargs = {
+                    'image': image,
+                    'bboxes': [bbox_pascal],
+                    'bbox_labels': [sample['class_idx']],
+                }
+
+                if self.task == 'multitask' and mask is not None:
+                    transform_kwargs['mask'] = mask
+
+                augmented = self.transform(**transform_kwargs)
+                image = augmented['image']
+
+                if self.task == 'multitask' and mask is not None:
+                    mask = augmented['mask']
+
+                if augmented['bboxes']:
+                    bbox = self._pascal_voc_to_xywh(augmented['bboxes'][0])
+                else:
+                    bbox = [0.0, 0.0, 0.0, 0.0]
+            elif mask is not None:
                 augmented = self.transform(image=image, mask=mask)
                 image     = augmented['image']
                 mask      = augmented['mask']
@@ -153,7 +190,35 @@ class OxfordPetDataset(Dataset):
         return image, class_idx
 
 
-def get_transforms(split='train', image_size=224):
+def get_transforms(split='train', image_size=224, task='classification'):
+    if task in ['localization', 'multitask']:
+        transforms = [A.Resize(image_size, image_size)]
+
+        if split == 'train':
+            transforms.extend([
+                A.HorizontalFlip(p=0.5),
+                A.RandomBrightnessContrast(p=0.4),
+                A.HueSaturationValue(p=0.3),
+            ])
+
+        transforms.extend([
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std =[0.229, 0.224, 0.225]
+            ),
+            ToTensorV2(),
+        ])
+
+        return A.Compose(
+            transforms,
+            bbox_params=A.BboxParams(
+                format='pascal_voc',
+                label_fields=['bbox_labels'],
+                min_visibility=0.0,
+                clip=True,
+            )
+        )
+
     if split == 'train':
         return A.Compose([
             A.Resize(image_size, image_size),
@@ -167,29 +232,29 @@ def get_transforms(split='train', image_size=224):
             ),
             ToTensorV2(),
         ])
-    else:
-        return A.Compose([
-            A.Resize(image_size, image_size),
-            A.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std =[0.229, 0.224, 0.225]
-            ),
-            ToTensorV2(),
-        ])
+
+    return A.Compose([
+        A.Resize(image_size, image_size),
+        A.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std =[0.229, 0.224, 0.225]
+        ),
+        ToTensorV2(),
+    ])
 
 
 def get_dataloaders(root_dir, task='classification', batch_size=32, num_workers=4):
     train_dataset = OxfordPetDataset(
         root_dir=root_dir, split='train',
-        transform=get_transforms('train'), task=task
+        transform=get_transforms('train', task=task), task=task
     )
     val_dataset = OxfordPetDataset(
         root_dir=root_dir, split='val',
-        transform=get_transforms('val'), task=task
+        transform=get_transforms('val', task=task), task=task
     )
     test_dataset = OxfordPetDataset(
         root_dir=root_dir, split='test',
-        transform=get_transforms('test'), task=task
+        transform=get_transforms('test', task=task), task=task
     )
 
     train_loader = DataLoader(
