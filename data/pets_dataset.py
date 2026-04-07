@@ -124,6 +124,20 @@ class OxfordPetDataset(Dataset):
         height   = ymax - ymin
         return [x_center, y_center, width, height]
 
+    def _normalize_bbox(self, bbox, image):
+        if isinstance(image, torch.Tensor):
+            _, height, width = image.shape
+        else:
+            height, width = image.shape[:2]
+
+        x_center, y_center, box_width, box_height = bbox
+        return [
+            x_center / width,
+            y_center / height,
+            box_width / width,
+            box_height / height,
+        ]
+
     def __getitem__(self, idx):
         sample = self.samples[idx]
         image  = np.array(Image.open(sample['img_path']).convert('RGB'))
@@ -171,7 +185,7 @@ class OxfordPetDataset(Dataset):
             return image, class_idx
 
         elif self.task == 'localization':
-            bbox_tensor = torch.tensor(bbox, dtype=torch.float32) \
+            bbox_tensor = torch.tensor(self._normalize_bbox(bbox, image), dtype=torch.float32) \
                           if bbox is not None else torch.zeros(4, dtype=torch.float32)
             return image, bbox_tensor
 
@@ -181,7 +195,7 @@ class OxfordPetDataset(Dataset):
             return image, torch.zeros(224, 224, dtype=torch.long)
 
         elif self.task == 'multitask':
-            bbox_tensor = torch.tensor(bbox, dtype=torch.float32) \
+            bbox_tensor = torch.tensor(self._normalize_bbox(bbox, image), dtype=torch.float32) \
                           if bbox is not None else torch.zeros(4, dtype=torch.float32)
             if mask is None:
                 mask = torch.zeros(224, 224, dtype=torch.long)

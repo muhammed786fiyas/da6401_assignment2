@@ -25,7 +25,7 @@ class PetLocalizer(nn.Module):
             CustomDropout(p=dropout_p),
 
             nn.Linear(1024, 4),
-            nn.ReLU(inplace=True)
+            nn.Sigmoid()
         )
 
     def forward(self, x):

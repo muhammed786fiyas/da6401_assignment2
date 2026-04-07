@@ -239,7 +239,7 @@ def train_localizer(args):
     if os.path.exists('checkpoints/classifier.pth'):
         model.load_backbone('checkpoints/classifier.pth')
 
-    mse_loss  = nn.MSELoss()
+    reg_loss  = nn.SmoothL1Loss()
     iou_loss  = IoULoss(reduction='mean')
 
     optimizer = torch.optim.AdamW([
@@ -278,7 +278,7 @@ def train_localizer(args):
 
             optimizer.zero_grad()
             preds = model(images)
-            loss  = mse_loss(preds, bboxes) + iou_loss(preds, bboxes)
+            loss  = reg_loss(preds, bboxes) + iou_loss(preds, bboxes)
             loss.backward()
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -300,7 +300,7 @@ def train_localizer(args):
                 images   = images.to(device)
                 bboxes   = bboxes.to(device)
                 preds    = model(images)
-                val_loss += (mse_loss(preds, bboxes) + iou_loss(preds, bboxes)).item()
+                val_loss += (reg_loss(preds, bboxes) + iou_loss(preds, bboxes)).item()
                 val_iou  += compute_iou_score(preds, bboxes)
 
         val_loss /= len(val_loader)
