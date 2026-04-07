@@ -155,7 +155,7 @@ def train_classifier(args):
             'train/f1'   : train_f1,
             'val/loss'   : val_loss,
             'val/f1'     : val_f1,
-            'lr'         : optimizer.param_groups[1]['lr']
+            'lr'         : optimizer.param_groups[0]['lr']
         })
 
         if val_f1 > best_val_f1:
