@@ -235,11 +235,34 @@ def get_transforms(split='train', image_size=224, task='classification'):
 
     if split == 'train':
         return A.Compose([
-            A.Resize(image_size, image_size),
+            A.RandomResizedCrop(image_size, image_size, scale=(0.6, 1.0)),
+
             A.HorizontalFlip(p=0.5),
-            A.RandomBrightnessContrast(p=0.4),
-            A.Rotate(limit=15, p=0.3),
-            A.HueSaturationValue(p=0.3),
+
+            A.ShiftScaleRotate(
+                shift_limit=0.1,
+                scale_limit=0.2,
+                rotate_limit=20,
+                p=0.5
+            ),
+
+            A.ColorJitter(
+                brightness=0.4,
+                contrast=0.4,
+                saturation=0.4,
+                hue=0.1,
+                p=0.5
+            ),
+
+            A.GaussianBlur(p=0.2),
+
+            A.CoarseDropout(
+                max_holes=8,
+                max_height=32,
+                max_width=32,
+                p=0.3
+            ),
+
             A.Normalize(
                 mean=[0.485, 0.456, 0.406],
                 std =[0.229, 0.224, 0.225]

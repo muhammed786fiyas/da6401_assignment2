@@ -4,7 +4,7 @@ from models.layers import CustomDropout
 
 
 class VGG11(nn.Module):
-    def __init__(self, num_classes=37, dropout_p=0.5):
+    def __init__(self, num_classes=37, dropout_p=0.3):
         super(VGG11, self).__init__()
 
         self.features = nn.Sequential(
@@ -50,14 +50,16 @@ class VGG11(nn.Module):
 
         self.classifier = nn.Sequential(
             nn.Linear(512 * 7 * 7, 4096),
+            nn.BatchNorm1d(4096),
             nn.ReLU(inplace=True),
             CustomDropout(p=dropout_p),
 
-            nn.Linear(4096, 4096),
+            nn.Linear(4096, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(inplace=True),
             CustomDropout(p=dropout_p),
 
-            nn.Linear(4096, num_classes),
+            nn.Linear(1024, num_classes),
         )
 
         self._initialize_weights()

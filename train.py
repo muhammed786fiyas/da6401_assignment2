@@ -83,9 +83,20 @@ def train_classifier(args):
         batch_size  = args.batch_size,
         num_workers = args.num_workers
     )
+    # --- Compute class weights ---
+    labels = [s['class_idx'] for s in train_loader.dataset.samples]
+    counts = np.bincount(labels)
 
+    weights = 1.0 / counts
+    weights = weights / weights.sum()
+
+    weights = torch.tensor(weights).float().to(device)
+    
     model     = PetClassifier(num_classes=37, dropout_p=args.dropout_p).to(device)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
+    criterion = nn.CrossEntropyLoss(
+        weight=weights,
+        label_smoothing=0.05
+    )
 
     # single lr for all params — model is trained from scratch, differential lr is only for fine-tuning
     optimizer = torch.optim.AdamW(
@@ -139,7 +150,7 @@ def train_classifier(args):
             loss    = criterion(outputs, labels)
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
             train_loss += loss.item()
@@ -479,9 +490,9 @@ def parse_args():
     parser.add_argument('--data_dir',        type=str,   default='./data/oxford-iiit-pet')
     parser.add_argument('--epochs',          type=int,   default=50)
     parser.add_argument('--batch_size',      type=int,   default=64)
-    parser.add_argument('--lr',              type=float, default=3e-4)
+    parser.add_argument('--lr',              type=float, default=5e-4)
     parser.add_argument('--weight_decay',    type=float, default=1e-4)
-    parser.add_argument('--dropout_p',       type=float, default=0.4)
+    parser.add_argument('--dropout_p',       type=float, default=0.3)
     parser.add_argument('--freeze_backbone', action='store_true')
     parser.add_argument('--num_workers',     type=int,   default=2)
     parser.add_argument('--wandb_project',   type=str,   default='da6401-assignment2')
