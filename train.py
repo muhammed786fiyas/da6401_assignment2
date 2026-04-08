@@ -247,16 +247,33 @@ def train_localizer(args):
         freeze_backbone = args.freeze_backbone
     ).to(device)
 
-    if os.path.exists('checkpoints/classifier.pth'):
-        model.load_backbone('checkpoints/classifier.pth')
-
-    reg_loss  = nn.SmoothL1Loss()
-    iou_loss  = IoULoss(reduction='mean')
-
+    # optimizer
     optimizer = torch.optim.AdamW([
         {'params': model.features.parameters(),   'lr': args.lr * 0.1},
         {'params': model.regressor.parameters(),  'lr': args.lr}
     ], weight_decay=args.weight_decay)
+
+    
+    # resume support
+    start_epoch = 0
+    best_val_iou = 0.0 
+
+    if args.resume_localizer and os.path.exists(args.resume_localizer):
+        checkpoint = torch.load(args.resume_localizer, map_location=device)
+
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        start_epoch = checkpoint.get('epoch', 0)
+        best_val_iou = checkpoint.get('val_iou', 0.0)
+
+        print(f"Resumed localizer from {args.resume_localizer} at epoch {start_epoch} (best_val_iou={best_val_iou:.4f})")
+
+    elif os.path.exists('checkpoints/classifier.pth'):
+        model.load_backbone('checkpoints/classifier.pth')
+
+    reg_loss  = nn.SmoothL1Loss()
+    iou_loss  = IoULoss(reduction='mean')
 
     # 5-epoch linear warmup then cosine decay — warmup prevents gradient shock at epoch 1
     warmup_epochs = 5
@@ -272,11 +289,10 @@ def train_localizer(args):
         milestones=[warmup_epochs]
     )
 
-    best_val_iou = 0.0
     no_improve   = 0
     patience     = 10
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
 
         # ── train ──
         model.train()
@@ -497,6 +513,7 @@ def parse_args():
     parser.add_argument('--num_workers',     type=int,   default=2)
     parser.add_argument('--wandb_project',   type=str,   default='da6401-assignment2')
     parser.add_argument('--resume_classifier', type=str, default='')
+    parser.add_argument('--resume_localizer', type=str, default=None)
 
     return parser.parse_args()
 
