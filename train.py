@@ -249,8 +249,8 @@ def train_localizer(args):
 
     # optimizer
     optimizer = torch.optim.AdamW([
-        {'params': model.features.parameters(),   'lr': args.lr * 0.1},
-        {'params': model.regressor.parameters(),  'lr': args.lr}
+        {'params': model.features.parameters(),  'lr': args.lr * 0.5}, 
+        {'params': model.regressor.parameters(), 'lr': args.lr}
     ], weight_decay=args.weight_decay)
 
     
