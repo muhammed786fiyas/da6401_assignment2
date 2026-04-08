@@ -235,7 +235,10 @@ def get_transforms(split='train', image_size=224, task='classification'):
 
     if split == 'train':
         return A.Compose([
-            A.RandomResizedCrop(image_size, image_size, scale=(0.6, 1.0)),
+            A.RandomResizedCrop(
+                size=(image_size, image_size),
+                scale=(0.6, 1.0)
+            ),
 
             A.HorizontalFlip(p=0.5),
 
