@@ -153,14 +153,6 @@ class OxfordPetDataset(Dataset):
                 else:
                     bbox = [0.0, 0.0, 0.0, 0.0]
 
-                # ✅ Normalize AFTER transform
-                _, H, W = image.shape
-                bbox = [
-                    bbox[0] / W,
-                    bbox[1] / H,
-                    bbox[2] / W,
-                    bbox[3] / H,
-                ]
 
             elif self.task == 'segmentation' and mask is not None:
                 transformed = self.transform(image=image, mask=mask)
@@ -249,8 +241,15 @@ def get_transforms(split='train', image_size=224, task='classification'):
 
 def get_dataloaders(root_dir, task='classification', batch_size=32, num_workers=4):
     train_dataset = OxfordPetDataset(root_dir, 'train', get_transforms('train', task=task), task)
-    val_dataset   = OxfordPetDataset(root_dir, 'val',   get_transforms('val', task=task), task)
-    test_dataset  = OxfordPetDataset(root_dir, 'test',  get_transforms('test', task=task), task)
+    val_dataset   = OxfordPetDataset(root_dir, 'val',   get_transforms('val',   task=task), task)
+    test_dataset  = OxfordPetDataset(root_dir, 'test',  get_transforms('test',  task=task), task)
+
+    # remove samples with no bbox annotation for localization
+    if task == 'localization':
+        train_dataset.samples = [s for s in train_dataset.samples if s['image_name'] in train_dataset.bbox_lookup]
+        val_dataset.samples   = [s for s in val_dataset.samples   if s['image_name'] in val_dataset.bbox_lookup]
+        test_dataset.samples  = [s for s in test_dataset.samples  if s['image_name'] in test_dataset.bbox_lookup]
+        print(f"Localization — Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
 
     return (
         DataLoader(train_dataset, batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=True),
