@@ -19,17 +19,19 @@ class PetLocalizer(nn.Module):
 
         # Regression head (improved with BatchNorm)
         self.regressor = nn.Sequential(
-            nn.Linear(512 * 7 * 7, 4096),
-            nn.BatchNorm1d(4096),
+            nn.AdaptiveAvgPool2d((1, 1)),   
+            nn.Flatten(),
+
+            nn.Linear(512, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(inplace=True),
             CustomDropout(p=dropout_p),
 
-            nn.Linear(4096, 1024),
-            nn.BatchNorm1d(1024),
+            nn.Linear(512, 128),
+            nn.BatchNorm1d(128),
             nn.ReLU(inplace=True),
-            CustomDropout(p=dropout_p),
 
-            nn.Linear(1024, 4),
+            nn.Linear(128, 4),
             nn.Sigmoid()
         )
 
@@ -38,7 +40,6 @@ class PetLocalizer(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
-        x = torch.flatten(x, 1)
         x = self.regressor(x)
         return x
 
