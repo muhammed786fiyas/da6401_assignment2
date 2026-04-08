@@ -444,7 +444,7 @@ def train_segmentor(args):
             'val/loss'      : val_loss,
             'val/dice'      : val_dice,
             'val/pixel_acc' : val_pixel_acc,
-            'lr'            : optimizer.param_groups[1]['lr']
+            'lr'            : optimizer.param_groups[0]['lr']
         })
 
         if val_dice > best_val_dice:
