@@ -62,6 +62,16 @@ def compute_dice(pred_mask, true_mask, num_classes=3):
 
     return np.mean(dice_scores)
 
+def xywh_to_xyxy(box):
+    x, y, w, h = box[:, 0], box[:, 1], box[:, 2], box[:, 3]
+
+    x1 = x - w / 2
+    y1 = y - h / 2
+    x2 = x + w / 2
+    y2 = y + h / 2
+
+    return torch.stack([x1, y1, x2, y2], dim=1)
+
 
 # ─────────────────────────────────────────────
 # Task 1 — Classification
@@ -223,40 +233,38 @@ def train_classifier(args):
 
 
 # ─────────────────────────────────────────────
-# Task 2 — Localization
+# Task 2 — Localization (FINAL FIXED)
 # ─────────────────────────────────────────────
 
 def train_localizer(args):
     wandb.init(
-        project = args.wandb_project,
-        name    = 'task2_localization',
-        config  = vars(args)
+        project=args.wandb_project,
+        name='task2_localization',
+        config=vars(args)
     )
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     train_loader, val_loader, _ = get_dataloaders(
-        root_dir    = args.data_dir,
-        task        = 'localization',
-        batch_size  = args.batch_size,
-        num_workers = args.num_workers
+        root_dir=args.data_dir,
+        task='localization',
+        batch_size=args.batch_size,
+        num_workers=args.num_workers
     )
 
     model = PetLocalizer(
-        dropout_p       = args.dropout_p,
-        freeze_backbone = args.freeze_backbone
+        dropout_p=args.dropout_p,
+        freeze_backbone=args.freeze_backbone
     ).to(device)
 
-    # optimizer
     optimizer = torch.optim.AdamW([
-        {'params': model.features.parameters(),  'lr': args.lr}, 
+        {'params': model.features.parameters(),  'lr': args.lr * 0.1},
         {'params': model.regressor.parameters(), 'lr': args.lr}
     ], weight_decay=args.weight_decay)
 
-    
-    # resume support
+    # resume
     start_epoch = 0
-    best_val_iou = 0.0 
+    best_val_iou = 0.0
 
     if args.resume_localizer and os.path.exists(args.resume_localizer):
         checkpoint = torch.load(args.resume_localizer, map_location=device)
@@ -272,10 +280,10 @@ def train_localizer(args):
     elif os.path.exists('checkpoints/classifier.pth'):
         model.load_backbone('checkpoints/classifier.pth')
 
-    reg_loss  = nn.SmoothL1Loss()
-    iou_loss  = IoULoss(reduction='mean')
+    reg_loss = nn.SmoothL1Loss()
+    iou_loss = IoULoss(reduction='mean')
 
-    # 5-epoch linear warmup then cosine decay — warmup prevents gradient shock at epoch 1
+    # schedulers
     warmup_epochs = 5
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=0.01, end_factor=1.0, total_iters=warmup_epochs
@@ -289,15 +297,15 @@ def train_localizer(args):
         milestones=[warmup_epochs]
     )
 
-    no_improve   = 0
-    patience     = 10
+    no_improve = 0
+    patience = 10
 
     for epoch in range(start_epoch, args.epochs):
 
-        # ── train ──
+        # ── TRAIN ──
         model.train()
         train_loss = 0.0
-        train_iou  = 0.0
+        train_iou = 0.0
 
         for images, bboxes in train_loader:
             images = images.to(device)
@@ -305,33 +313,50 @@ def train_localizer(args):
 
             optimizer.zero_grad()
             preds = model(images)
-            loss  = reg_loss(preds, bboxes) + iou_loss(preds, bboxes)
-            loss.backward()
 
+            # ✅ ONLY for IoU LOSS → convert
+            preds_xyxy = xywh_to_xyxy(preds)
+            targets_xyxy = xywh_to_xyxy(bboxes)
+
+            loss = reg_loss(preds, bboxes) + iou_loss(preds_xyxy, targets_xyxy)
+
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
             train_loss += loss.item()
-            train_iou  += compute_iou_score(preds.detach(), bboxes)
+
+            # ✅ IMPORTANT: keep xywh here
+            train_iou += compute_iou_score(preds.detach(), bboxes)
 
         train_loss /= len(train_loader)
-        train_iou  /= len(train_loader)
+        train_iou /= len(train_loader)
 
-        # ── val ──
+        # ── VALIDATION ──
         model.eval()
         val_loss = 0.0
-        val_iou  = 0.0
+        val_iou = 0.0
 
         with torch.no_grad():
             for images, bboxes in val_loader:
-                images   = images.to(device)
-                bboxes   = bboxes.to(device)
-                preds    = model(images)
-                val_loss += (reg_loss(preds, bboxes) + iou_loss(preds, bboxes)).item()
-                val_iou  += compute_iou_score(preds, bboxes)
+                images = images.to(device)
+                bboxes = bboxes.to(device)
+
+                preds = model(images)
+
+                preds_xyxy = xywh_to_xyxy(preds)
+                targets_xyxy = xywh_to_xyxy(bboxes)
+
+                val_loss += (
+                    reg_loss(preds, bboxes) +
+                    iou_loss(preds_xyxy, targets_xyxy)
+                ).item()
+
+                # ✅ IMPORTANT: keep xywh here
+                val_iou += compute_iou_score(preds, bboxes)
 
         val_loss /= len(val_loader)
-        val_iou  /= len(val_loader)
+        val_iou /= len(val_loader)
 
         scheduler.step()
 
@@ -340,24 +365,28 @@ def train_localizer(args):
               f"Val Loss: {val_loss:.4f} Val IoU: {val_iou:.4f}")
 
         wandb.log({
-            'epoch'      : epoch + 1,
-            'train/loss' : train_loss,
-            'train/iou'  : train_iou,
-            'val/loss'   : val_loss,
-            'val/iou'    : val_iou,
-            'lr'         : optimizer.param_groups[1]['lr']
+            'epoch': epoch + 1,
+            'train/loss': train_loss,
+            'train/iou': train_iou,
+            'val/loss': val_loss,
+            'val/iou': val_iou,
+            'lr': optimizer.param_groups[1]['lr']
         })
 
+        # save best
         if val_iou > best_val_iou:
             best_val_iou = val_iou
-            no_improve   = 0
+            no_improve = 0
+
             torch.save({
-                'epoch'               : epoch + 1,
-                'model_state_dict'    : model.state_dict(),
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'val_iou'             : val_iou,
+                'val_iou': val_iou,
             }, 'checkpoints/localizer.pth')
+
             print(f"  Saved best localizer (val_iou={val_iou:.4f})")
+
         else:
             no_improve += 1
             if no_improve >= patience:
@@ -366,7 +395,6 @@ def train_localizer(args):
 
     wandb.finish()
     print(f"Task 2 done. Best Val IoU: {best_val_iou:.4f}")
-
 
 # ─────────────────────────────────────────────
 # Task 3 — Segmentation
