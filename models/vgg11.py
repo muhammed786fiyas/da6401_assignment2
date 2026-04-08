@@ -4,58 +4,60 @@ from models.layers import CustomDropout
 
 
 class VGG11(nn.Module):
-    def __init__(self, num_classes=37, dropout_p=0.3):
+    def __init__(self, num_classes=37, dropout_p=0.5, use_bn=True):
         super(VGG11, self).__init__()
 
+        # -------- FEATURES --------
         self.features = nn.Sequential(
             # Block 1
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
+            nn.BatchNorm2d(64) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.MaxPool2d(2, 2),
 
             # Block 2
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
+            nn.BatchNorm2d(128) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.MaxPool2d(2, 2),
 
             # Block 3
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
+            nn.BatchNorm2d(256) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
+            nn.BatchNorm2d(256) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.MaxPool2d(2, 2),
 
             # Block 4
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
-            nn.BatchNorm2d(512),
+            nn.BatchNorm2d(512) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
-            nn.BatchNorm2d(512),
+            nn.BatchNorm2d(512) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.MaxPool2d(2, 2),
 
             # Block 5
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
-            nn.BatchNorm2d(512),
+            nn.BatchNorm2d(512) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
-            nn.BatchNorm2d(512),
+            nn.BatchNorm2d(512) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.MaxPool2d(2, 2),
         )
 
+        # -------- CLASSIFIER --------
         self.classifier = nn.Sequential(
             nn.Linear(512 * 7 * 7, 4096),
-            nn.BatchNorm1d(4096),
+            nn.BatchNorm1d(4096) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
             CustomDropout(p=dropout_p),
 
             nn.Linear(4096, 1024),
-            nn.BatchNorm1d(1024),
+            nn.BatchNorm1d(1024) if use_bn else nn.Identity(),
             nn.ReLU(inplace=True),
             CustomDropout(p=dropout_p),
 
@@ -76,11 +78,13 @@ class VGG11(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
+
+            elif isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
             elif isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)   # better than normal init
+                nn.init.xavier_uniform_(m.weight)
                 nn.init.constant_(m.bias, 0)
 
     def get_features(self):

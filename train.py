@@ -70,7 +70,7 @@ def compute_dice(pred_mask, true_mask, num_classes=3):
 def train_classifier(args):
     wandb.init(
         project = args.wandb_project,
-        name    = 'task1_classification',
+        name    = 'exp-2.1',
         config  = vars(args)
     )
 
@@ -92,7 +92,7 @@ def train_classifier(args):
 
     weights = torch.tensor(weights).float().to(device)
     
-    model     = PetClassifier(num_classes=37, dropout_p=args.dropout_p).to(device)
+    model = PetClassifier(num_classes=37,dropout_p=args.dropout_p,use_bn=bool(args.use_bn)).to(device)
     criterion = nn.CrossEntropyLoss(
         weight=weights,
         label_smoothing=0.05
@@ -497,7 +497,8 @@ def parse_args():
     parser.add_argument('--num_workers',     type=int,   default=2)
     parser.add_argument('--wandb_project',   type=str,   default='da6401-assignment2')
     parser.add_argument('--resume_classifier', type=str, default='')
-
+    parser.add_argument('--use_bn', type=int, default=1)
+    
     return parser.parse_args()
 
 
