@@ -9,7 +9,7 @@ from albumentations.pytorch import ToTensorV2
 
 class OxfordPetDataset(Dataset):
     def __init__(self, root_dir, split='train', transform=None, task='classification'):
-        super(OxfordPetDataset, self).__init__()
+        super().__init__()
 
         self.root_dir   = root_dir
         self.split      = split
@@ -32,6 +32,7 @@ class OxfordPetDataset(Dataset):
                 line = line.strip()
                 if line.startswith('#') or not line:
                     continue
+
                 parts = line.split()
                 if len(parts) < 2:
                     continue
@@ -46,10 +47,10 @@ class OxfordPetDataset(Dataset):
                     continue
 
                 all_samples.append({
-                    'image_name' : image_name,
-                    'class_idx'  : class_id,
-                    'img_path'   : img_path,
-                    'mask_path'  : mask_path,
+                    'image_name': image_name,
+                    'class_idx' : class_id,
+                    'img_path'  : img_path,
+                    'mask_path' : mask_path,
                 })
 
         total   = len(all_samples)
@@ -109,38 +110,22 @@ class OxfordPetDataset(Dataset):
         return len(self.samples)
 
     def _xywh_to_pascal_voc(self, bbox):
-        x_center, y_center, width, height = bbox
-        xmin = x_center - width / 2
-        ymin = y_center - height / 2
-        xmax = x_center + width / 2
-        ymax = y_center + height / 2
-        return [xmin, ymin, xmax, ymax]
+        x, y, w, h = bbox
+        return [x - w/2, y - h/2, x + w/2, y + h/2]
 
     def _pascal_voc_to_xywh(self, bbox):
         xmin, ymin, xmax, ymax = bbox
-        x_center = (xmin + xmax) / 2
-        y_center = (ymin + ymax) / 2
-        width    = xmax - xmin
-        height   = ymax - ymin
-        return [x_center, y_center, width, height]
-
-    def _normalize_bbox(self, bbox, image):
-        if isinstance(image, torch.Tensor):
-            _, height, width = image.shape
-        else:
-            height, width = image.shape[:2]
-
-        x_center, y_center, box_width, box_height = bbox
         return [
-            x_center / width,
-            y_center / height,
-            box_width / width,
-            box_height / height,
+            (xmin + xmax) / 2,
+            (ymin + ymax) / 2,
+            xmax - xmin,
+            ymax - ymin,
         ]
 
     def __getitem__(self, idx):
         sample = self.samples[idx]
-        image  = np.array(Image.open(sample['img_path']).convert('RGB'))
+
+        image = np.array(Image.open(sample['img_path']).convert('RGB'))
 
         mask = None
         if os.path.exists(sample['mask_path']):
@@ -150,34 +135,40 @@ class OxfordPetDataset(Dataset):
         bbox = self.bbox_lookup.get(sample['image_name'], None)
 
         if self.transform is not None:
+
             if self.task in ['localization', 'multitask']:
+
                 bbox_pascal = self._xywh_to_pascal_voc(bbox) if bbox is not None else None
-                transform_kwargs = {
-                    'image': image,
-                    'bboxes': [bbox_pascal] if bbox_pascal is not None else [],
-                    'bbox_labels': [sample['class_idx']] if bbox_pascal is not None else [],
-                }
 
-                if self.task == 'multitask' and mask is not None:
-                    transform_kwargs['mask'] = mask
+                transformed = self.transform(
+                    image=image,
+                    bboxes=[bbox_pascal] if bbox_pascal else [],
+                    bbox_labels=[sample['class_idx']] if bbox_pascal else []
+                )
 
-                augmented = self.transform(**transform_kwargs)
-                image = augmented['image']
+                image = transformed['image']
 
-                if self.task == 'multitask' and mask is not None:
-                    mask = augmented['mask']
-
-                if augmented['bboxes']:
-                    bbox = self._pascal_voc_to_xywh(augmented['bboxes'][0])
+                if transformed['bboxes']:
+                    bbox = self._pascal_voc_to_xywh(transformed['bboxes'][0])
                 else:
                     bbox = [0.0, 0.0, 0.0, 0.0]
-            elif mask is not None:
-                augmented = self.transform(image=image, mask=mask)
-                image     = augmented['image']
-                mask      = augmented['mask']
+
+                # ✅ Normalize AFTER transform
+                _, H, W = image.shape
+                bbox = [
+                    bbox[0] / W,
+                    bbox[1] / H,
+                    bbox[2] / W,
+                    bbox[3] / H,
+                ]
+
+            elif self.task == 'segmentation' and mask is not None:
+                transformed = self.transform(image=image, mask=mask)
+                image = transformed['image']
+                mask  = transformed['mask']
+
             else:
-                augmented = self.transform(image=image)
-                image     = augmented['image']
+                image = self.transform(image=image)['image']
 
         class_idx = torch.tensor(sample['class_idx'], dtype=torch.long)
 
@@ -185,129 +176,84 @@ class OxfordPetDataset(Dataset):
             return image, class_idx
 
         elif self.task == 'localization':
-            bbox_tensor = torch.tensor(self._normalize_bbox(bbox, image), dtype=torch.float32) \
-                          if bbox is not None else torch.zeros(4, dtype=torch.float32)
+            bbox_tensor = torch.tensor(bbox, dtype=torch.float32)
             return image, bbox_tensor
 
         elif self.task == 'segmentation':
-            if mask is not None:
-                return image, mask.long()
-            return image, torch.zeros(224, 224, dtype=torch.long)
-
-        elif self.task == 'multitask':
-            bbox_tensor = torch.tensor(self._normalize_bbox(bbox, image), dtype=torch.float32) \
-                          if bbox is not None else torch.zeros(4, dtype=torch.float32)
-            if mask is None:
-                mask = torch.zeros(224, 224, dtype=torch.long)
-            return image, class_idx, bbox_tensor, mask.long()
+            return image, mask.long()
 
         return image, class_idx
 
 
+# ---------------------------
+# Transforms
+# ---------------------------
+
 def get_transforms(split='train', image_size=224, task='classification'):
+
     if task in ['localization', 'multitask']:
         transforms = [A.Resize(image_size, image_size)]
 
         if split == 'train':
-            transforms.extend([
+            transforms += [
                 A.HorizontalFlip(p=0.5),
                 A.RandomBrightnessContrast(p=0.4),
                 A.HueSaturationValue(p=0.3),
-            ])
+            ]
 
-        transforms.extend([
-            A.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std =[0.229, 0.224, 0.225]
-            ),
+        transforms += [
+            A.Normalize(mean=[0.485, 0.456, 0.406],
+                        std =[0.229, 0.224, 0.225]),
             ToTensorV2(),
-        ])
+        ]
 
         return A.Compose(
             transforms,
             bbox_params=A.BboxParams(
                 format='pascal_voc',
                 label_fields=['bbox_labels'],
-                min_visibility=0.0,
                 clip=True,
             )
         )
 
+    # Classification / Segmentation
     if split == 'train':
         return A.Compose([
-            A.RandomResizedCrop(
-                size=(image_size, image_size),
-                scale=(0.6, 1.0)
-            ),
-
+            A.RandomResizedCrop(size=(image_size, image_size), scale=(0.6, 1.0)),
             A.HorizontalFlip(p=0.5),
-
-            A.Affine(
-                translate_percent=0.1,
-                scale=(0.8, 1.2),
-                rotate=(-20, 20),
-                p=0.5
-            ),
-
-            A.ColorJitter(
-                brightness=0.4,
-                contrast=0.4,
-                saturation=0.4,
-                hue=0.1,
-                p=0.5
-            ),
-
+            A.Affine(translate_percent=0.1, scale=(0.8, 1.2), rotate=(-20, 20), p=0.5),
+            A.ColorJitter(p=0.5),
             A.GaussianBlur(p=0.2),
-
             A.CoarseDropout(
-                num_holes_range=(1, 8),
+                num_holes_range=(1, 6),
                 hole_height_range=(16, 32),
                 hole_width_range=(16, 32),
-                p=0.3
+                p=0.2
             ),
-
-            A.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std =[0.229, 0.224, 0.225]
-            ),
+            A.Normalize(mean=[0.485, 0.456, 0.406],
+                        std =[0.229, 0.224, 0.225]),
             ToTensorV2(),
         ])
 
     return A.Compose([
         A.Resize(image_size, image_size),
-        A.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std =[0.229, 0.224, 0.225]
-        ),
+        A.Normalize(mean=[0.485, 0.456, 0.406],
+                    std =[0.229, 0.224, 0.225]),
         ToTensorV2(),
     ])
 
 
+# ---------------------------
+# Dataloaders
+# ---------------------------
+
 def get_dataloaders(root_dir, task='classification', batch_size=32, num_workers=4):
-    train_dataset = OxfordPetDataset(
-        root_dir=root_dir, split='train',
-        transform=get_transforms('train', task=task), task=task
-    )
-    val_dataset = OxfordPetDataset(
-        root_dir=root_dir, split='val',
-        transform=get_transforms('val', task=task), task=task
-    )
-    test_dataset = OxfordPetDataset(
-        root_dir=root_dir, split='test',
-        transform=get_transforms('test', task=task), task=task
-    )
+    train_dataset = OxfordPetDataset(root_dir, 'train', get_transforms('train', task=task), task)
+    val_dataset   = OxfordPetDataset(root_dir, 'val',   get_transforms('val', task=task), task)
+    test_dataset  = OxfordPetDataset(root_dir, 'test',  get_transforms('test', task=task), task)
 
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size,
-        shuffle=True, num_workers=num_workers, pin_memory=True
+    return (
+        DataLoader(train_dataset, batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=True),
+        DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True),
+        DataLoader(test_dataset,  batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True),
     )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size,
-        shuffle=False, num_workers=num_workers, pin_memory=True
-    )
-    test_loader = DataLoader(
-        test_dataset, batch_size=batch_size,
-        shuffle=False, num_workers=num_workers, pin_memory=True
-    )
-
-    return train_loader, val_loader, test_loader
