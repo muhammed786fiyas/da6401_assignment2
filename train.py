@@ -248,16 +248,20 @@ def train_localizer(args):
         freeze_backbone = args.freeze_backbone
     ).to(device)
 
-    # load backbone from classifier — always start from pretrained features
     if os.path.exists('checkpoints/classifier.pth'):
         model.load_backbone('checkpoints/classifier.pth')
         print("Loaded pretrained backbone from classifier.pth")
 
-    reg_loss = nn.SmoothL1Loss()
+    IMAGE_SIZE = 224.0
+
+    def normalized_smooth_l1(pred, target):
+        # normalize to [0,1] before computing loss — keeps scale manageable
+        return nn.SmoothL1Loss()(pred / IMAGE_SIZE, target / IMAGE_SIZE)
+
     iou_loss = IoULoss(reduction='mean')
 
     optimizer = torch.optim.AdamW([
-        {'params': model.features.parameters(),  'lr': args.lr * 0.1},
+        {'params': model.features.parameters(),  'lr': args.lr * 0.01},
         {'params': model.regressor.parameters(), 'lr': args.lr}
     ], weight_decay=args.weight_decay)
 
@@ -292,11 +296,10 @@ def train_localizer(args):
             optimizer.zero_grad()
             preds = model(images)
 
-            # IoULoss already handles xywh→xyxy internally
-            loss = reg_loss(preds, bboxes) + iou_loss(preds, bboxes)
+            loss = normalized_smooth_l1(preds, bboxes) + iou_loss(preds, bboxes)
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss.item()
@@ -316,7 +319,7 @@ def train_localizer(args):
                 bboxes = bboxes.to(device)
                 preds  = model(images)
 
-                loss     = reg_loss(preds, bboxes) + iou_loss(preds, bboxes)
+                loss     = normalized_smooth_l1(preds, bboxes) + iou_loss(preds, bboxes)
                 val_loss += loss.item()
                 val_iou  += compute_iou_score(preds, bboxes)
 

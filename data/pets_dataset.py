@@ -244,7 +244,6 @@ def get_dataloaders(root_dir, task='classification', batch_size=32, num_workers=
     val_dataset   = OxfordPetDataset(root_dir, 'val',   get_transforms('val',   task=task), task)
     test_dataset  = OxfordPetDataset(root_dir, 'test',  get_transforms('test',  task=task), task)
 
-    # remove samples with no bbox annotation for localization
     if task == 'localization':
         train_dataset.samples = [s for s in train_dataset.samples if s['image_name'] in train_dataset.bbox_lookup]
         val_dataset.samples   = [s for s in val_dataset.samples   if s['image_name'] in val_dataset.bbox_lookup]
@@ -252,7 +251,10 @@ def get_dataloaders(root_dir, task='classification', batch_size=32, num_workers=
         print(f"Localization — Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
 
     return (
-        DataLoader(train_dataset, batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=True),
-        DataLoader(val_dataset,   batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True),
-        DataLoader(test_dataset,  batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True),
+        DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
+                   num_workers=num_workers, pin_memory=True, drop_last=True),  # ← add this
+        DataLoader(val_dataset,   batch_size=batch_size, shuffle=False,
+                   num_workers=num_workers, pin_memory=True),
+        DataLoader(test_dataset,  batch_size=batch_size, shuffle=False,
+                   num_workers=num_workers, pin_memory=True),
     )
