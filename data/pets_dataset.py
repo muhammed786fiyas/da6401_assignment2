@@ -137,13 +137,12 @@ class OxfordPetDataset(Dataset):
         if self.transform is not None:
 
             if self.task in ['localization', 'multitask']:
-
                 bbox_pascal = self._xywh_to_pascal_voc(bbox) if bbox is not None else None
 
                 transformed = self.transform(
-                    image=image,
-                    bboxes=[bbox_pascal] if bbox_pascal else [],
-                    bbox_labels=[sample['class_idx']] if bbox_pascal else []
+                    image       = image,
+                    bboxes      = [bbox_pascal] if bbox_pascal else [],
+                    bbox_labels = [sample['class_idx']] if bbox_pascal else []
                 )
 
                 image = transformed['image']
@@ -153,11 +152,10 @@ class OxfordPetDataset(Dataset):
                 else:
                     bbox = [0.0, 0.0, 0.0, 0.0]
 
-
             elif self.task == 'segmentation' and mask is not None:
                 transformed = self.transform(image=image, mask=mask)
-                image = transformed['image']
-                mask  = transformed['mask']
+                image       = transformed['image']
+                mask        = transformed['mask']
 
             else:
                 image = self.transform(image=image)['image']
@@ -177,43 +175,47 @@ class OxfordPetDataset(Dataset):
         return image, class_idx
 
 
-# ---------------------------
-# Transforms
-# ---------------------------
-
 def get_transforms(split='train', image_size=224, task='classification'):
 
     if task in ['localization', 'multitask']:
-        transforms = [A.Resize(image_size, image_size)]
+        transforms_list = [A.Resize(image_size, image_size)]
 
         if split == 'train':
-            transforms += [
+            transforms_list += [
                 A.HorizontalFlip(p=0.5),
                 A.RandomBrightnessContrast(p=0.4),
                 A.HueSaturationValue(p=0.3),
             ]
 
-        transforms += [
-            A.Normalize(mean=[0.485, 0.456, 0.406],
-                        std =[0.229, 0.224, 0.225]),
+        transforms_list += [
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std =[0.229, 0.224, 0.225]
+            ),
             ToTensorV2(),
         ]
 
         return A.Compose(
-            transforms,
+            transforms_list,
             bbox_params=A.BboxParams(
-                format='pascal_voc',
-                label_fields=['bbox_labels'],
-                clip=True,
+                format         = 'pascal_voc',
+                label_fields   = ['bbox_labels'],
+                clip           = True,
+                min_area       = 1,
+                min_visibility = 0.1,
             )
         )
 
-    # Classification / Segmentation
     if split == 'train':
         return A.Compose([
             A.RandomResizedCrop(size=(image_size, image_size), scale=(0.6, 1.0)),
             A.HorizontalFlip(p=0.5),
-            A.Affine(translate_percent=0.1, scale=(0.8, 1.2), rotate=(-20, 20), p=0.5),
+            A.Affine(
+                translate_percent=0.1,
+                scale=(0.8, 1.2),
+                rotate=(-20, 20),
+                p=0.5
+            ),
             A.ColorJitter(p=0.5),
             A.GaussianBlur(p=0.2),
             A.CoarseDropout(
@@ -222,22 +224,22 @@ def get_transforms(split='train', image_size=224, task='classification'):
                 hole_width_range=(16, 32),
                 p=0.2
             ),
-            A.Normalize(mean=[0.485, 0.456, 0.406],
-                        std =[0.229, 0.224, 0.225]),
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std =[0.229, 0.224, 0.225]
+            ),
             ToTensorV2(),
         ])
 
     return A.Compose([
         A.Resize(image_size, image_size),
-        A.Normalize(mean=[0.485, 0.456, 0.406],
-                    std =[0.229, 0.224, 0.225]),
+        A.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std =[0.229, 0.224, 0.225]
+        ),
         ToTensorV2(),
     ])
 
-
-# ---------------------------
-# Dataloaders
-# ---------------------------
 
 def get_dataloaders(root_dir, task='classification', batch_size=32, num_workers=4):
     train_dataset = OxfordPetDataset(root_dir, 'train', get_transforms('train', task=task), task)
@@ -251,10 +253,19 @@ def get_dataloaders(root_dir, task='classification', batch_size=32, num_workers=
         print(f"Localization — Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
 
     return (
-        DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
-                   num_workers=num_workers, pin_memory=True, drop_last=True),  # ← add this
-        DataLoader(val_dataset,   batch_size=batch_size, shuffle=False,
-                   num_workers=num_workers, pin_memory=True),
-        DataLoader(test_dataset,  batch_size=batch_size, shuffle=False,
-                   num_workers=num_workers, pin_memory=True),
+        DataLoader(
+            train_dataset, batch_size=batch_size,
+            shuffle=True, num_workers=num_workers,
+            pin_memory=True, drop_last=True
+        ),
+        DataLoader(
+            val_dataset, batch_size=batch_size,
+            shuffle=False, num_workers=num_workers,
+            pin_memory=True
+        ),
+        DataLoader(
+            test_dataset, batch_size=batch_size,
+            shuffle=False, num_workers=num_workers,
+            pin_memory=True
+        ),
     )

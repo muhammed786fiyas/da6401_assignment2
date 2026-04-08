@@ -54,14 +54,13 @@ def compute_dice(pred_mask, true_mask, num_classes=3):
     true_mask   = true_mask.cpu().numpy()
 
     for c in range(num_classes):
-        pred_c        = (pred_mask == c).astype(np.float32)
-        true_c        = (true_mask == c).astype(np.float32)
-        intersection  = (pred_c * true_c).sum()
-        union         = pred_c.sum() + true_c.sum()
+        pred_c       = (pred_mask == c).astype(np.float32)
+        true_c       = (true_mask == c).astype(np.float32)
+        intersection = (pred_c * true_c).sum()
+        union        = pred_c.sum() + true_c.sum()
         dice_scores.append(1.0 if union == 0 else 2 * intersection / union)
 
     return np.mean(dice_scores)
-
 
 
 # ─────────────────────────────────────────────
@@ -84,73 +83,55 @@ def train_classifier(args):
         batch_size  = args.batch_size,
         num_workers = args.num_workers
     )
-    # --- Compute class weights ---
-    labels = [s['class_idx'] for s in train_loader.dataset.samples]
-    counts = np.bincount(labels)
 
+    labels  = [s['class_idx'] for s in train_loader.dataset.samples]
+    counts  = np.bincount(labels)
     weights = 1.0 / counts
     weights = weights / weights.sum()
-
     weights = torch.tensor(weights).float().to(device)
-    
-    model     = PetClassifier(num_classes=37, dropout_p=args.dropout_p).to(device)
-    criterion = nn.CrossEntropyLoss(
-        weight=weights,
-        label_smoothing=0.05
-    )
 
-    # single lr for all params — model is trained from scratch, differential lr is only for fine-tuning
+    model     = PetClassifier(num_classes=37, dropout_p=args.dropout_p).to(device)
+    criterion = nn.CrossEntropyLoss(weight=weights, label_smoothing=0.05)
+
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr           = args.lr,
         weight_decay = args.weight_decay
     )
-
-    scheduler  = torch.optim.lr_scheduler.CosineAnnealingLR(
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6
     )
 
     best_val_f1 = 0.0
     start_epoch = 0
 
-    if args.resume_classifier:
-        if os.path.exists(args.resume_classifier):
-            ckpt = torch.load(args.resume_classifier, map_location=device)
-            model.load_state_dict(ckpt['model_state_dict'])
-            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
-
-            start_epoch = ckpt.get('epoch', 0)
-            best_val_f1 = ckpt.get('val_f1', 0.0)
-
-            if 'scheduler_state_dict' in ckpt:
-                scheduler.load_state_dict(ckpt['scheduler_state_dict'])
-            else:
-                # Backward-compatible resume for older checkpoints.
-                for _ in range(start_epoch):
-                    scheduler.step()
-
-            print(f"Resumed classifier from {args.resume_classifier} at epoch {start_epoch} (best_val_f1={best_val_f1:.4f})")
+    if args.resume_classifier and os.path.exists(args.resume_classifier):
+        ckpt        = torch.load(args.resume_classifier, map_location=device)
+        model.load_state_dict(ckpt['model_state_dict'])
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        start_epoch = ckpt.get('epoch', 0)
+        best_val_f1 = ckpt.get('val_f1', 0.0)
+        if 'scheduler_state_dict' in ckpt:
+            scheduler.load_state_dict(ckpt['scheduler_state_dict'])
         else:
-            print(f"Resume checkpoint not found: {args.resume_classifier}. Starting from scratch.")
+            for _ in range(start_epoch):
+                scheduler.step()
+        print(f"Resumed from epoch {start_epoch}, best_val_f1={best_val_f1:.4f}")
 
     no_improve = 0
     patience   = 10
 
     for epoch in range(start_epoch, args.epochs):
-
-        # ── train ──
         model.train()
-        train_loss             = 0.0
-        all_preds, all_labels  = [], []
+        train_loss            = 0.0
+        all_preds, all_labels = [], []
 
         for images, labels in train_loader:
             images, labels = images.to(device), labels.to(device)
-
             optimizer.zero_grad()
             outputs = model(images)
             loss    = criterion(outputs, labels)
             loss.backward()
-
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
@@ -161,10 +142,9 @@ def train_classifier(args):
         train_loss /= len(train_loader)
         train_f1    = compute_f1(all_preds, all_labels)
 
-        # ── val ──
         model.eval()
-        val_loss               = 0.0
-        val_preds, val_labels  = [], []
+        val_loss              = 0.0
+        val_preds, val_labels = [], []
 
         with torch.no_grad():
             for images, labels in val_loader:
@@ -176,7 +156,6 @@ def train_classifier(args):
 
         val_loss /= len(val_loader)
         val_f1    = compute_f1(val_preds, val_labels)
-
         scheduler.step()
 
         print(f"Epoch [{epoch+1}/{args.epochs}] "
@@ -192,7 +171,6 @@ def train_classifier(args):
             'lr'         : optimizer.param_groups[0]['lr']
         })
 
-        # Always save latest state for seamless continuation after fixed epoch budgets.
         os.makedirs('checkpoints', exist_ok=True)
         torch.save({
             'epoch'               : epoch + 1,
@@ -224,7 +202,7 @@ def train_classifier(args):
 
 
 # ─────────────────────────────────────────────
-# Task 2 — Localization 
+# Task 2 — Localization
 # ─────────────────────────────────────────────
 
 def train_localizer(args):
@@ -255,7 +233,6 @@ def train_localizer(args):
     IMAGE_SIZE = 224.0
 
     def normalized_smooth_l1(pred, target):
-        # normalize to [0,1] before computing loss — keeps scale manageable
         return nn.SmoothL1Loss()(pred / IMAGE_SIZE, target / IMAGE_SIZE)
 
     iou_loss = IoULoss(reduction='mean')
@@ -283,8 +260,6 @@ def train_localizer(args):
     patience     = 15
 
     for epoch in range(args.epochs):
-
-        # ── train ──
         model.train()
         train_loss = 0.0
         train_iou  = 0.0
@@ -295,10 +270,8 @@ def train_localizer(args):
 
             optimizer.zero_grad()
             preds = model(images)
-
-            loss = normalized_smooth_l1(preds, bboxes) + iou_loss(preds, bboxes)
+            loss  = normalized_smooth_l1(preds, bboxes) + iou_loss(preds, bboxes)
             loss.backward()
-
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
@@ -308,7 +281,6 @@ def train_localizer(args):
         train_loss /= len(train_loader)
         train_iou  /= len(train_loader)
 
-        # ── val ──
         model.eval()
         val_loss = 0.0
         val_iou  = 0.0
@@ -318,14 +290,12 @@ def train_localizer(args):
                 images = images.to(device)
                 bboxes = bboxes.to(device)
                 preds  = model(images)
-
-                loss     = normalized_smooth_l1(preds, bboxes) + iou_loss(preds, bboxes)
+                loss   = normalized_smooth_l1(preds, bboxes) + iou_loss(preds, bboxes)
                 val_loss += loss.item()
                 val_iou  += compute_iou_score(preds, bboxes)
 
         val_loss /= len(val_loader)
         val_iou  /= len(val_loader)
-
         scheduler.step()
 
         print(f"Epoch [{epoch+1}/{args.epochs}] "
@@ -362,6 +332,7 @@ def train_localizer(args):
     wandb.finish()
     print(f"Task 2 done. Best Val IoU: {best_val_iou:.4f}")
 
+
 # ─────────────────────────────────────────────
 # Task 3 — Segmentation
 # ─────────────────────────────────────────────
@@ -393,11 +364,16 @@ def train_segmentor(args):
 
     criterion = nn.CrossEntropyLoss()
 
-    optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr           = args.lr,
-            weight_decay = args.weight_decay
-    )
+    optimizer = torch.optim.AdamW([
+        {'params': model.encoder.parameters(),        'lr': args.lr * 0.1},
+        {'params': model.decoder4.parameters(),       'lr': args.lr},
+        {'params': model.decoder3.parameters(),       'lr': args.lr},
+        {'params': model.decoder2.parameters(),       'lr': args.lr},
+        {'params': model.decoder1.parameters(),       'lr': args.lr},
+        {'params': model.final_upsample.parameters(), 'lr': args.lr},
+        {'params': model.output_conv.parameters(),    'lr': args.lr},
+    ], weight_decay=args.weight_decay)
+
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6
     )
@@ -407,8 +383,6 @@ def train_segmentor(args):
     patience      = 10
 
     for epoch in range(args.epochs):
-
-        # ── train ──
         model.train()
         train_loss = 0.0
         train_dice = 0.0
@@ -421,7 +395,6 @@ def train_segmentor(args):
             outputs = model(images)
             loss    = criterion(outputs, masks)
             loss.backward()
-
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
@@ -431,7 +404,6 @@ def train_segmentor(args):
         train_loss /= len(train_loader)
         train_dice /= len(train_loader)
 
-        # ── val ──
         model.eval()
         val_loss      = 0.0
         val_dice      = 0.0
@@ -439,18 +411,17 @@ def train_segmentor(args):
 
         with torch.no_grad():
             for images, masks in val_loader:
-                images      = images.to(device)
-                masks       = masks.to(device)
-                outputs     = model(images)
-                val_loss   += criterion(outputs, masks).item()
-                pred_masks  = outputs.argmax(dim=1)
-                val_dice   += compute_dice(pred_masks, masks)
+                images        = images.to(device)
+                masks         = masks.to(device)
+                outputs       = model(images)
+                val_loss     += criterion(outputs, masks).item()
+                pred_masks    = outputs.argmax(dim=1)
+                val_dice     += compute_dice(pred_masks, masks)
                 val_pixel_acc += (pred_masks == masks).float().mean().item()
 
         val_loss      /= len(val_loader)
         val_dice      /= len(val_loader)
         val_pixel_acc /= len(val_loader)
-
         scheduler.step()
 
         print(f"Epoch [{epoch+1}/{args.epochs}] "
@@ -465,7 +436,7 @@ def train_segmentor(args):
             'val/loss'      : val_loss,
             'val/dice'      : val_dice,
             'val/pixel_acc' : val_pixel_acc,
-            'lr'            : optimizer.param_groups[0]['lr']
+            'lr'            : optimizer.param_groups[1]['lr']
         })
 
         if val_dice > best_val_dice:
@@ -495,19 +466,19 @@ def train_segmentor(args):
 def parse_args():
     parser = argparse.ArgumentParser(description='DA6401 Assignment 2 Training')
 
-    parser.add_argument('--task',            type=str,   default='classification',
+    parser.add_argument('--task',              type=str,   default='classification',
                         choices=['classification', 'localization', 'segmentation'])
-    parser.add_argument('--data_dir',        type=str,   default='./data/oxford-iiit-pet')
-    parser.add_argument('--epochs',          type=int,   default=50)
-    parser.add_argument('--batch_size',      type=int,   default=64)
-    parser.add_argument('--lr',              type=float, default=5e-4)
-    parser.add_argument('--weight_decay',    type=float, default=1e-4)
-    parser.add_argument('--dropout_p',       type=float, default=0.3)
-    parser.add_argument('--freeze_backbone', action='store_true')
-    parser.add_argument('--num_workers',     type=int,   default=2)
-    parser.add_argument('--wandb_project',   type=str,   default='da6401-assignment2')
-    parser.add_argument('--resume_classifier', type=str, default='')
-    parser.add_argument('--resume_localizer', type=str, default=None)
+    parser.add_argument('--data_dir',          type=str,   default='./data/oxford-iiit-pet')
+    parser.add_argument('--epochs',            type=int,   default=50)
+    parser.add_argument('--batch_size',        type=int,   default=64)
+    parser.add_argument('--lr',                type=float, default=5e-4)
+    parser.add_argument('--weight_decay',      type=float, default=1e-4)
+    parser.add_argument('--dropout_p',         type=float, default=0.3)
+    parser.add_argument('--freeze_backbone',   action='store_true')
+    parser.add_argument('--num_workers',       type=int,   default=2)
+    parser.add_argument('--wandb_project',     type=str,   default='da6401-assignment2')
+    parser.add_argument('--resume_classifier', type=str,   default='')
+    parser.add_argument('--resume_localizer',  type=str,   default=None)
 
     return parser.parse_args()
 
