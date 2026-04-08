@@ -263,7 +263,7 @@ def get_transforms(split='train', image_size=224, task='classification'):
                 num_holes_range=(1, 8),
                 hole_height_range=(16, 32),
                 hole_width_range=(16, 32),
-                p=0.3
+                p=0.2
             ),
 
             A.Normalize(
