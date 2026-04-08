@@ -310,6 +310,20 @@ def train_localizer(args):
         for images, bboxes in train_loader:
             images = images.to(device)
             bboxes = bboxes.to(device)
+            
+            # 🔍 ADD HERE
+            if epoch == start_epoch:
+                print("\n===== DEBUG BBOX CHECK =====")
+                print("GT bbox (first sample):", bboxes[0])
+
+                preds_debug = model(images)
+                print("Pred bbox (first sample):", preds_debug[0])
+
+                print("GT min/max:", bboxes.min().item(), bboxes.max().item())
+                print("Pred min/max:", preds_debug.min().item(), preds_debug.max().item())
+                print("===========================\n")
+
+                return
 
             optimizer.zero_grad()
             preds = model(images)
