@@ -1,5 +1,6 @@
 import os
 import torch
+import random
 import numpy as np
 from PIL import Image
 import albumentations as A
@@ -9,6 +10,11 @@ import matplotlib.patches as patches
 
 from models.multitask import MultiTaskPerceptionModel
 
+torch.manual_seed(42)
+np.random.seed(42)
+random.seed(42)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark     = False
 
 # ─────────────────────────────────────────────
 # Constants
@@ -104,15 +110,14 @@ def postprocess_segmentation(seg_tensor):
 # ─────────────────────────────────────────────
 
 def run_inference(image_path, model):
-    """Run full pipeline on a single image."""
     model.eval()
 
-    # preprocess
     tensor, orig_image = preprocess_image(image_path)
     tensor = tensor.to(DEVICE)
 
     orig_h, orig_w = orig_image.shape[:2]
 
+    # single forward pass only
     with torch.no_grad():
         cls_out, loc_out, seg_out = model(tensor)
 
@@ -137,7 +142,7 @@ def run_inference(image_path, model):
         'colored_mask' : colored_mask,
         'orig_image'   : orig_image,
     }
-
+    
 
 # ─────────────────────────────────────────────
 # Visualization

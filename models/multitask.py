@@ -20,11 +20,16 @@ class MultiTaskPerceptionModel(nn.Module):
     ):
         super(MultiTaskPerceptionModel, self).__init__()
 
-        # ── download checkpoints from Google Drive ──
+        # ── download checkpoints from Google Drive only if not present ──
         import gdown
-        gdown.download(id="1aJ9_EkH8ZT1Eq_B5lL2cuw1GESTb75aI", output=classifier_path, quiet=False)
-        gdown.download(id="13dakOkqhhocmrSHUrXBxmFbyAh6fMBE8",  output=localizer_path,  quiet=False)
-        gdown.download(id="1gGxfOgyoeANrvybKIDhHrovunbM1GW7Z",       output=unet_path,       quiet=False)
+        os.makedirs(os.path.dirname(classifier_path) or '.', exist_ok=True)
+        
+        if not os.path.exists(classifier_path):
+            gdown.download(id="1aJ9_EkH8ZT1Eq_B5lL2cuw1GESTb75aI", output=classifier_path, quiet=False)
+        if not os.path.exists(localizer_path):
+            gdown.download(id="1WF1wcI_u2046AqMsHsDEGanNaXT9sTSm", output=localizer_path, quiet=False)
+        if not os.path.exists(unet_path):
+            gdown.download(id="1gGxfOgyoeANrvybKIDhHrovunbM1GW7Z", output=unet_path, quiet=False)
 
         # ── shared backbone ──
         vgg             = VGG11(num_classes=num_classes, dropout_p=dropout_p)
@@ -71,60 +76,48 @@ class MultiTaskPerceptionModel(nn.Module):
     def _load_weights(self, classifier_path, localizer_path, unet_path):
         device = torch.device('cpu')
 
-        # ── load classifier weights → backbone + cls_head ──
+        # ── classifier ──
         if os.path.exists(classifier_path):
-            clf_ckpt = torch.load(classifier_path, map_location=device)
-            clf_state = clf_ckpt['model_state_dict']
+            clf_model = PetClassifier(num_classes=37, dropout_p=0.3)
+            clf_ckpt  = torch.load(classifier_path, map_location=device)
+            clf_model.load_state_dict(clf_ckpt['model_state_dict'])
 
-            # backbone from classifier
-            backbone_state = {
-                k.replace('model.features.', ''): v
-                for k, v in clf_state.items()
-                if 'model.features' in k
-            }
-            vgg_temp = VGG11()
-            vgg_temp.features.load_state_dict(backbone_state, strict=False)
-            encoder_temp = VGG11Encoder(vgg_temp)
-            self.encoder.load_state_dict(encoder_temp.state_dict())
+            # encoder from classifier backbone
+            encoder_temp = VGG11Encoder(clf_model.model)
+            self.encoder.load_state_dict(encoder_temp.state_dict(), strict=True)
 
-            # cls_head from classifier
-            cls_head_state = {
-                k.replace('model.classifier.', ''): v
-                for k, v in clf_state.items()
-                if 'model.classifier' in k
-            }
-            self.cls_head.load_state_dict(cls_head_state, strict=False)
+            # cls_head from classifier head
+            self.cls_head.load_state_dict(
+                clf_model.model.classifier.state_dict(), strict=False
+            )
             print("Classifier weights loaded.")
 
-        # ── load localizer weights → loc_head ──
+        # ── localizer ──
         if os.path.exists(localizer_path):
-            loc_ckpt   = torch.load(localizer_path, map_location=device)
-            loc_state  = loc_ckpt['model_state_dict']
+            loc_model = PetLocalizer(dropout_p=0.3)
+            loc_ckpt  = torch.load(localizer_path, map_location=device)
+            loc_model.load_state_dict(loc_ckpt['model_state_dict'])
 
-            loc_head_state = {
-                k.replace('regressor.', ''): v
-                for k, v in loc_state.items()
-                if k.startswith('regressor.')
-            }
-            self.loc_head.load_state_dict(loc_head_state, strict=False)
+            # loc_head from localizer regressor
+            self.loc_head.load_state_dict(
+                loc_model.regressor.state_dict(), strict=False
+            )
             print("Localizer weights loaded.")
 
-        # ── load unet weights → segmentation decoder ──
+        # ── unet ──
         if os.path.exists(unet_path):
-            seg_ckpt  = torch.load(unet_path, map_location=device)
-            seg_state = seg_ckpt['model_state_dict']
+            seg_model = PetSegmentor(num_classes=3, dropout_p=0.3)
+            seg_ckpt  = torch.load(unet_path, map_location=device,weights_only=False)
+            seg_model.load_state_dict(seg_ckpt['model_state_dict'])
 
-            # decoder blocks
-            for name in ['decoder4', 'decoder3', 'decoder2', 'decoder1',
-                         'final_upsample', 'output_conv', 'bottleneck_dropout']:
-                block_state = {
-                    k.replace(f'{name}.', ''): v
-                    for k, v in seg_state.items()
-                    if k.startswith(f'{name}.')
-                }
-                if block_state:
-                    getattr(self, name).load_state_dict(block_state, strict=False)
-
+            # copy decoder blocks directly
+            self.decoder4.load_state_dict(seg_model.decoder4.state_dict())
+            self.decoder3.load_state_dict(seg_model.decoder3.state_dict())
+            self.decoder2.load_state_dict(seg_model.decoder2.state_dict())
+            self.decoder1.load_state_dict(seg_model.decoder1.state_dict())
+            self.final_upsample.load_state_dict(seg_model.final_upsample.state_dict())
+            self.output_conv.load_state_dict(seg_model.output_conv.state_dict())
+            self.bottleneck_dropout.load_state_dict(seg_model.bottleneck_dropout.state_dict())
             print("Segmentor weights loaded.")
 
     def forward(self, x):
