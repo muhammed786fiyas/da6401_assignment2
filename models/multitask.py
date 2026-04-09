@@ -37,14 +37,18 @@ class MultiTaskPerceptionModel(nn.Module):
 
         # ── classification head ──
         self.cls_pool       = nn.AdaptiveAvgPool2d((7, 7))
-        self.cls_head       = nn.Sequential(
+        self.cls_head = nn.Sequential(
             nn.Linear(512 * 7 * 7, 4096),
+            nn.BatchNorm1d(4096),
             nn.ReLU(inplace=True),
             CustomDropout(p=dropout_p),
-            nn.Linear(4096, 4096),
+
+            nn.Linear(4096, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(inplace=True),
             CustomDropout(p=dropout_p),
-            nn.Linear(4096, num_classes),
+
+            nn.Linear(1024, num_classes),
         )
 
         # ── localization head ──
