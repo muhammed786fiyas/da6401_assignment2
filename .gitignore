@@ -14,8 +14,8 @@ venv/
 
 # Checkpoints — don't push .pth files (too large)
 checkpoints/*.pth
-checkpoints/base model/
-checkpoints/fine tune /
+checkpoints/base_model/
+checkpoints/fine_tune /
 
 # Dataset — don't push data
 data/oxford-iiit-pet/
