@@ -88,8 +88,11 @@ class VGG11(nn.Module):
 
 
 class VGG11Encoder(nn.Module):
-    def __init__(self, vgg11: VGG11):
+    def __init__(self, vgg11=None):
         super(VGG11Encoder, self).__init__()
+
+        if vgg11 is None:
+            vgg11 = VGG11()   
 
         blocks = list(vgg11.features.children())
 
@@ -98,7 +101,7 @@ class VGG11Encoder(nn.Module):
         self.block3 = nn.Sequential(*blocks[8:15])
         self.block4 = nn.Sequential(*blocks[15:22])
         self.block5 = nn.Sequential(*blocks[22:])
-
+        
     def forward(self, x):
         s1 = self.block1(x)
         s2 = self.block2(s1)
