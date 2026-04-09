@@ -53,10 +53,10 @@ class PetSegmentor(nn.Module):
         s1, s2, s3, s4, s5 = self.encoder(x)
         s5 = self.bottleneck_dropout(s5)
 
-        d4  = self.decoder4(s5, s4)
-        d3  = self.decoder3(d4, s3)
-        d2  = self.decoder2(d3, s2)
-        d1  = self.decoder1(d2, s1)
+        d4 = self.decoder4(s5, s4)
+        d3 = self.decoder3(d4, s3)
+        d2 = self.decoder2(d3, s2)
+        d1 = self.decoder1(d2, s1)
 
         out = self.final_upsample(d1)
         out = self.output_conv(out)

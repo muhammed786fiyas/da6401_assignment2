@@ -14,11 +14,7 @@ torch.manual_seed(42)
 np.random.seed(42)
 random.seed(42)
 torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark     = False
-
-# ─────────────────────────────────────────────
-# Constants
-# ─────────────────────────────────────────────
+torch.backends.cudnn.benchmark = False
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -35,15 +31,11 @@ CLASS_NAMES = [
 ]
 
 SEG_COLORS = {
-    0: (0, 255, 0),    # foreground — green
-    1: (255, 0, 0),    # background — red
-    2: (255, 255, 0),  # uncertain  — yellow
+    0: (0, 255, 0),
+    1: (255, 0, 0),
+    2: (255, 255, 0),
 }
 
-
-# ─────────────────────────────────────────────
-# Preprocessing
-# ─────────────────────────────────────────────
 
 def get_transform():
     return A.Compose([
@@ -61,12 +53,8 @@ def preprocess_image(image_path):
     image     = np.array(Image.open(image_path).convert('RGB'))
     transform = get_transform()
     tensor    = transform(image=image)['image']
-    return tensor.unsqueeze(0), image   # [1,3,224,224], original numpy
+    return tensor.unsqueeze(0), image
 
-
-# ─────────────────────────────────────────────
-# Postprocessing
-# ─────────────────────────────────────────────
 
 def postprocess_bbox(bbox_tensor, orig_h, orig_w):
     """Scale bbox from 224x224 space back to original image size."""
@@ -96,7 +84,7 @@ def postprocess_bbox(bbox_tensor, orig_h, orig_w):
 
 def postprocess_segmentation(seg_tensor):
     """Convert segmentation logits to colored mask."""
-    pred_mask = seg_tensor[0].argmax(dim=0).cpu().numpy()  # [224, 224]
+    pred_mask = seg_tensor[0].argmax(dim=0).cpu().numpy()
 
     colored = np.zeros((224, 224, 3), dtype=np.uint8)
     for class_id, color in SEG_COLORS.items():
@@ -105,9 +93,6 @@ def postprocess_segmentation(seg_tensor):
     return pred_mask, colored
 
 
-# ─────────────────────────────────────────────
-# Main Inference
-# ─────────────────────────────────────────────
 
 def run_inference(image_path, model):
     model.eval()
@@ -142,14 +127,10 @@ def run_inference(image_path, model):
         'confidence'   : confidence,
         'bbox'         : (x1, y1, x2, y2),
         'seg_mask'     : pred_mask,
-        'colored_mask' : colored_mask,
-        'orig_image'   : orig_image,
+        'colored_mask': colored_mask,
+        'orig_image': orig_image,
     }
-    
 
-# ─────────────────────────────────────────────
-# Visualization
-# ─────────────────────────────────────────────
 
 def visualize_results(results, save_path=None):
     """Plot original image, bbox, and segmentation side by side."""
@@ -161,12 +142,10 @@ def visualize_results(results, save_path=None):
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
-    # original image
     axes[0].imshow(orig)
     axes[0].set_title('Original Image')
     axes[0].axis('off')
 
-    # image with bounding box
     axes[1].imshow(orig)
     x1, y1, x2, y2 = bbox
     rect = patches.Rectangle(
@@ -177,15 +156,13 @@ def visualize_results(results, save_path=None):
     axes[1].set_title(f'{label} ({conf:.2%})')
     axes[1].axis('off')
 
-    # segmentation mask
     axes[2].imshow(mask)
     axes[2].set_title('Segmentation Mask')
     axes[2].axis('off')
 
-    # legend for segmentation
     legend_elements = [
-        patches.Patch(facecolor='green',  label='Foreground'),
-        patches.Patch(facecolor='red',    label='Background'),
+        patches.Patch(facecolor='green', label='Foreground'),
+        patches.Patch(facecolor='red', label='Background'),
         patches.Patch(facecolor='yellow', label='Uncertain'),
     ]
     axes[2].legend(handles=legend_elements, loc='lower right', fontsize=8)
@@ -198,10 +175,6 @@ def visualize_results(results, save_path=None):
 
     plt.show()
 
-
-# ─────────────────────────────────────────────
-# Entry Point
-# ─────────────────────────────────────────────
 
 def main():
     import argparse

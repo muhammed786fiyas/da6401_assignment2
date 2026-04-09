@@ -13,10 +13,6 @@ from models.segmentation import PetSegmentor
 from losses.iou_loss import IoULoss
 
 
-# ─────────────────────────────────────────────
-# Metrics
-# ─────────────────────────────────────────────
-
 def compute_f1(preds, labels):
     return f1_score(labels, preds, average='macro', zero_division=0)
 
@@ -62,10 +58,6 @@ def compute_dice(pred_mask, true_mask, num_classes=3):
 
     return np.mean(dice_scores)
 
-
-# ─────────────────────────────────────────────
-# Task 1 — Classification
-# ─────────────────────────────────────────────
 
 def train_classifier(args):
     wandb.init(
@@ -201,10 +193,6 @@ def train_classifier(args):
     print(f"Task 1 done. Best Val F1: {best_val_f1:.4f}")
 
 
-# ─────────────────────────────────────────────
-# Task 2 — Localization
-# ─────────────────────────────────────────────
-
 def train_localizer(args):
     wandb.init(
         project = args.wandb_project,
@@ -333,10 +321,6 @@ def train_localizer(args):
     print(f"Task 2 done. Best Val IoU: {best_val_iou:.4f}")
 
 
-# ─────────────────────────────────────────────
-# Task 3 — Segmentation
-# ─────────────────────────────────────────────
-
 def train_segmentor(args):
     wandb.init(
         project = args.wandb_project,
@@ -459,10 +443,6 @@ def train_segmentor(args):
     print(f"Task 3 done. Best Val Dice: {best_val_dice:.4f}")
 
 
-# ─────────────────────────────────────────────
-# Argument Parser
-# ─────────────────────────────────────────────
-
 def parse_args():
     parser = argparse.ArgumentParser(description='DA6401 Assignment 2 Training')
 
@@ -482,10 +462,6 @@ def parse_args():
 
     return parser.parse_args()
 
-
-# ─────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────
 
 if __name__ == '__main__':
     args = parse_args()

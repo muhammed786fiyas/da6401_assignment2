@@ -8,19 +8,16 @@ class VGG11(nn.Module):
         super(VGG11, self).__init__()
 
         self.features = nn.Sequential(
-            # Block 1
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            # Block 2
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            # Block 3
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
@@ -29,7 +26,6 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            # Block 4
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
@@ -38,7 +34,6 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            # Block 5
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
@@ -80,7 +75,7 @@ class VGG11(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)   # better than normal init
+                nn.init.xavier_uniform_(m.weight)
                 nn.init.constant_(m.bias, 0)
 
     def get_features(self):
@@ -92,7 +87,7 @@ class VGG11Encoder(nn.Module):
         super(VGG11Encoder, self).__init__()
 
         if vgg11 is None:
-            vgg11 = VGG11()   
+            vgg11 = VGG11()
 
         blocks = list(vgg11.features.children())
 
@@ -101,7 +96,7 @@ class VGG11Encoder(nn.Module):
         self.block3 = nn.Sequential(*blocks[8:15])
         self.block4 = nn.Sequential(*blocks[15:22])
         self.block5 = nn.Sequential(*blocks[22:])
-        
+
     def forward(self, x):
         s1 = self.block1(x)
         s2 = self.block2(s1)

@@ -36,7 +36,6 @@ class PetLocalizer(nn.Module):
     def forward(self, x):
         x = self.features(x)
         x = self.regressor(x)
-        # clamp to valid pixel range
         x = torch.clamp(x, min=0, max=224)
         return x
 
@@ -56,8 +55,6 @@ class PetLocalizer(nn.Module):
                 nn.init.xavier_uniform_(m.weight)
                 nn.init.constant_(m.bias, 0)
 
-        # initialize final layer bias to predict image center
-        # x_center=112, y_center=112, width=100, height=100
         final_layer = self.regressor[-1]
         nn.init.constant_(final_layer.bias, 0)
         nn.init.normal_(final_layer.weight, mean=0, std=0.01)
