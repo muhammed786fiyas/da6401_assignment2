@@ -76,6 +76,7 @@ def train_classifier(args):
         num_workers = args.num_workers
     )
 
+    # Calculate class weights for imbalanced dataset
     labels  = [s['class_idx'] for s in train_loader.dataset.samples]
     counts  = np.bincount(labels)
     weights = 1.0 / counts
@@ -111,7 +112,7 @@ def train_classifier(args):
         print(f"Resumed from epoch {start_epoch}, best_val_f1={best_val_f1:.4f}")
 
     no_improve = 0
-    patience   = 10
+    patience = 10  # Early stopping patience
 
     for epoch in range(start_epoch, args.epochs):
         model.train()
@@ -221,6 +222,7 @@ def train_localizer(args):
     IMAGE_SIZE = 224.0
 
     def normalized_smooth_l1(pred, target):
+        # Normalize bbox coordinates to [0, 1] range
         return nn.SmoothL1Loss()(pred / IMAGE_SIZE, target / IMAGE_SIZE)
 
     iou_loss = IoULoss(reduction='mean')
@@ -230,6 +232,7 @@ def train_localizer(args):
         {'params': model.regressor.parameters(), 'lr': args.lr}
     ], weight_decay=args.weight_decay)
 
+    # Warmup + Cosine Annealing scheduler
     warmup_epochs    = 5
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
@@ -245,7 +248,7 @@ def train_localizer(args):
 
     best_val_iou = 0.0
     no_improve   = 0
-    patience     = 15
+    patience     = 15  # Early stopping patience for localization
 
     for epoch in range(args.epochs):
         model.train()
@@ -364,7 +367,7 @@ def train_segmentor(args):
 
     best_val_dice = 0.0
     no_improve    = 0
-    patience      = 10
+    patience      = 10  # Early stopping patience for segmentation
 
     for epoch in range(args.epochs):
         model.train()

@@ -33,6 +33,7 @@ class MultiTaskPerceptionModel(nn.Module):
         vgg = VGG11(num_classes=num_classes, dropout_p=dropout_p)
         self.encoder = VGG11Encoder(vgg)
 
+        # Classification head
         self.cls_pool = nn.AdaptiveAvgPool2d((7, 7))
         self.cls_head = nn.Sequential(
             nn.Linear(512 * 7 * 7, 4096),
@@ -48,6 +49,7 @@ class MultiTaskPerceptionModel(nn.Module):
             nn.Linear(1024, num_classes),
         )
 
+        # Localization head
         self.loc_head = nn.Sequential(
             nn.Flatten(),
             nn.Linear(512 * 7 * 7, 1024),
@@ -61,6 +63,7 @@ class MultiTaskPerceptionModel(nn.Module):
             nn.Linear(256, 4),
         )
 
+        # Segmentation decoder
         self.decoder4 = DecoderBlock(512, 512, 256)
         self.decoder3 = DecoderBlock(256, 256, 128)
         self.decoder2 = DecoderBlock(128, 128, 64)
@@ -74,6 +77,7 @@ class MultiTaskPerceptionModel(nn.Module):
     def _load_weights(self, classifier_path, localizer_path, unet_path):
         device = torch.device('cpu')
 
+        # Load classifier weights
         if os.path.exists(classifier_path):
             clf_model = PetClassifier(num_classes=37, dropout_p=0.3)
             clf_ckpt = torch.load(classifier_path, map_location=device)
@@ -87,6 +91,7 @@ class MultiTaskPerceptionModel(nn.Module):
             )
             print("Classifier weights loaded.")
 
+        # Load localizer weights
         if os.path.exists(localizer_path):
             loc_model = PetLocalizer(dropout_p=0.3)
             loc_ckpt = torch.load(localizer_path, map_location=device)
@@ -97,6 +102,7 @@ class MultiTaskPerceptionModel(nn.Module):
             )
             print("Localizer weights loaded.")
 
+        # Load segmentor weights
         if os.path.exists(unet_path):
             seg_model = PetSegmentor(num_classes=3, dropout_p=0.3)
             seg_ckpt = torch.load(unet_path, map_location=device, weights_only=False)
@@ -114,12 +120,15 @@ class MultiTaskPerceptionModel(nn.Module):
     def forward(self, x):
         s1, s2, s3, s4, s5 = self.encoder(x)
 
+        # Classification output
         cls_feat = torch.flatten(s5, 1)
         cls_out = self.cls_head(cls_feat)
 
+        # Localization output
         loc_out = self.loc_head(s5)
         loc_out = torch.clamp(loc_out, min=0, max=224)
 
+        # Segmentation output
         s5_drop = self.bottleneck_dropout(s5)
         d4 = self.decoder4(s5_drop, s4)
         d3 = self.decoder3(d4, s3)

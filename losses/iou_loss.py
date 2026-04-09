@@ -13,6 +13,7 @@ class IoULoss(nn.Module):
         pred: (N, 4) [x_center, y_center, width, height] in pixel space
         target: (N, 4) [x_center, y_center, width, height] in pixel space
         """
+        # Convert [x_center, y_center, w, h] to [x1, y1, x2, y2]
         pred_x1 = pred[:, 0] - pred[:, 2] / 2
         pred_y1 = pred[:, 1] - pred[:, 3] / 2
         pred_x2 = pred[:, 0] + pred[:, 2] / 2
@@ -23,6 +24,7 @@ class IoULoss(nn.Module):
         target_x2 = target[:, 0] + target[:, 2] / 2
         target_y2 = target[:, 1] + target[:, 3] / 2
 
+        # Calculate intersection
         inter_x1 = torch.max(pred_x1, target_x1)
         inter_y1 = torch.max(pred_y1, target_y1)
         inter_x2 = torch.min(pred_x2, target_x2)
@@ -32,10 +34,12 @@ class IoULoss(nn.Module):
         inter_h = (inter_y2 - inter_y1).clamp(min=0)
         intersection = inter_w * inter_h
 
+        # Calculate union
         pred_area = (pred_x2 - pred_x1).clamp(min=0) * (pred_y2 - pred_y1).clamp(min=0)
         target_area = (target_x2 - target_x1).clamp(min=0) * (target_y2 - target_y1).clamp(min=0)
         union = pred_area + target_area - intersection
 
+        # Calculate IoU and loss
         iou = intersection / (union + 1e-6)
         loss = 1.0 - iou
 

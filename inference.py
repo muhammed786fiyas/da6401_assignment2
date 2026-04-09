@@ -53,7 +53,7 @@ def preprocess_image(image_path):
     image     = np.array(Image.open(image_path).convert('RGB'))
     transform = get_transform()
     tensor    = transform(image=image)['image']
-    return tensor.unsqueeze(0), image
+    return tensor.unsqueeze(0), image  # [1,3,224,224], original numpy
 
 
 def postprocess_bbox(bbox_tensor, orig_h, orig_w):
@@ -79,6 +79,7 @@ def postprocess_bbox(bbox_tensor, orig_h, orig_w):
     x2 = min(orig_w, x2)
     y2 = min(orig_h, y2)
 
+    # Clamp to image bounds
     return x1, y1, x2, y2
 
 
@@ -109,16 +110,16 @@ def run_inference(image_path, model):
     loc_out = outputs['localization']
     seg_out = outputs['segmentation']
 
-    # classification
+    # Classification
     probs      = torch.softmax(cls_out, dim=1)[0]
     class_idx  = probs.argmax().item()
     confidence = probs[class_idx].item()
     class_name = CLASS_NAMES[class_idx] if class_idx < len(CLASS_NAMES) else f"class_{class_idx}"
 
-    # localization
+    # Localization
     x1, y1, x2, y2 = postprocess_bbox(loc_out.cpu(), orig_h, orig_w)
 
-    # segmentation
+    # Segmentation
     pred_mask, colored_mask = postprocess_segmentation(seg_out.cpu())
 
     return {

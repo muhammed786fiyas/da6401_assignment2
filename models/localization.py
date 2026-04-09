@@ -15,6 +15,7 @@ class PetLocalizer(nn.Module):
             for param in self.features.parameters():
                 param.requires_grad = False
 
+        # Regression head for bounding box prediction
         self.regressor = nn.Sequential(
             nn.Flatten(),
 
