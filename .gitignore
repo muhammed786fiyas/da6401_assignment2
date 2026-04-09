@@ -14,6 +14,8 @@ venv/
 
 # Checkpoints — don't push .pth files (too large)
 checkpoints/*.pth
+checkpoints/base_model
+checkpoints/fine_tune
 
 # Dataset — don't push data
 data/oxford-iiit-pet/
@@ -33,4 +35,7 @@ wandb/
 Thumbs.db
 
 # Test files
-test.py
+notebooks/debug.ipynb
+
+#notebook
+notebooks/part1-kaggle-run.ipynb
