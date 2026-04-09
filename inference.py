@@ -117,9 +117,12 @@ def run_inference(image_path, model):
 
     orig_h, orig_w = orig_image.shape[:2]
 
-    # single forward pass only
     with torch.no_grad():
-        cls_out, loc_out, seg_out = model(tensor)
+        outputs = model(tensor)
+
+    cls_out = outputs['classification']
+    loc_out = outputs['localization']
+    seg_out = outputs['segmentation']
 
     # classification
     probs      = torch.softmax(cls_out, dim=1)[0]

@@ -121,18 +121,17 @@ class MultiTaskPerceptionModel(nn.Module):
             print("Segmentor weights loaded.")
 
     def forward(self, x):
-        # single forward pass through shared encoder
         s1, s2, s3, s4, s5 = self.encoder(x)
 
-        # ── classification ──
+        # classification
         cls_feat = torch.flatten(s5, 1)
         cls_out  = self.cls_head(cls_feat)
 
-        # ── localization ──
+        # localization
         loc_out  = self.loc_head(s5)
         loc_out  = torch.clamp(loc_out, min=0, max=224)
 
-        # ── segmentation ──
+        # segmentation
         s5_drop  = self.bottleneck_dropout(s5)
         d4       = self.decoder4(s5_drop, s4)
         d3       = self.decoder3(d4, s3)
@@ -141,4 +140,8 @@ class MultiTaskPerceptionModel(nn.Module):
         seg_out  = self.final_upsample(d1)
         seg_out  = self.output_conv(seg_out)
 
-        return cls_out, loc_out, seg_out
+        return {
+            'classification' : cls_out,
+            'localization'   : loc_out,
+            'segmentation'   : seg_out,
+        }
