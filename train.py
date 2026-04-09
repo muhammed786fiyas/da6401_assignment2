@@ -70,7 +70,7 @@ def compute_dice(pred_mask, true_mask, num_classes=3):
 def train_classifier(args):
     wandb.init(
         project = args.wandb_project,
-        name    = 'exp-2.1',
+        name    = f"exp-2.1 : bn={'on' if args.use_bn else 'off'}",
         config  = vars(args)
     )
 
