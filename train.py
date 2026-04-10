@@ -347,9 +347,17 @@ def train_localizer(args):
 # ─────────────────────────────────────────────
 
 def train_segmentor(args):
+
+    # run name based on freeze strategy
+    run_names = {
+        'full_freeze'   : 'seg-frozen-backbone',
+        'partial_freeze': 'seg-partial-finetune',
+        'full_finetune' : 'seg-full-finetune',
+    }
+
     wandb.init(
         project = args.wandb_project,
-        name    = 'task3_segmentation',
+        name    = run_names.get(args.freeze_mode, 'seg-experiment'),
         config  = vars(args)
     )
 
@@ -363,21 +371,48 @@ def train_segmentor(args):
     )
 
     model = PetSegmentor(
-        num_classes     = 3,
-        dropout_p       = args.dropout_p,
-        freeze_backbone = args.freeze_backbone
+        num_classes = 3,
+        dropout_p   = args.dropout_p,
     ).to(device)
 
     if os.path.exists('checkpoints/classifier.pth'):
         model.load_backbone('checkpoints/classifier.pth')
 
+    # ── freeze strategy ──
+    if args.freeze_mode == 'full_freeze':
+        # freeze entire encoder
+        for param in model.encoder.parameters():
+            param.requires_grad = False
+        print("Strategy: Full freeze — encoder frozen")
+
+    elif args.freeze_mode == 'partial_freeze':
+        # freeze early blocks, unfreeze last 2 blocks
+        for param in model.encoder.block1.parameters():
+            param.requires_grad = False
+        for param in model.encoder.block2.parameters():
+            param.requires_grad = False
+        for param in model.encoder.block3.parameters():
+            param.requires_grad = False
+        # block4 and block5 remain trainable
+        print("Strategy: Partial freeze — blocks 1,2,3 frozen, 4,5 trainable")
+
+    elif args.freeze_mode == 'full_finetune':
+        # all parameters trainable
+        for param in model.encoder.parameters():
+            param.requires_grad = True
+        print("Strategy: Full fine-tune — entire network trainable")
+
     criterion = nn.CrossEntropyLoss()
 
+    # only pass trainable params to optimizer
+    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+
     optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr           = args.lr,
-            weight_decay = args.weight_decay
+        trainable_params,
+        lr           = args.lr,
+        weight_decay = args.weight_decay
     )
+
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6
     )
@@ -387,8 +422,6 @@ def train_segmentor(args):
     patience      = 10
 
     for epoch in range(args.epochs):
-
-        # ── train ──
         model.train()
         train_loss = 0.0
         train_dice = 0.0
@@ -401,7 +434,6 @@ def train_segmentor(args):
             outputs = model(images)
             loss    = criterion(outputs, masks)
             loss.backward()
-
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
@@ -411,7 +443,6 @@ def train_segmentor(args):
         train_loss /= len(train_loader)
         train_dice /= len(train_loader)
 
-        # ── val ──
         model.eval()
         val_loss      = 0.0
         val_dice      = 0.0
@@ -419,18 +450,17 @@ def train_segmentor(args):
 
         with torch.no_grad():
             for images, masks in val_loader:
-                images      = images.to(device)
-                masks       = masks.to(device)
-                outputs     = model(images)
-                val_loss   += criterion(outputs, masks).item()
-                pred_masks  = outputs.argmax(dim=1)
-                val_dice   += compute_dice(pred_masks, masks)
+                images        = images.to(device)
+                masks         = masks.to(device)
+                outputs       = model(images)
+                val_loss     += criterion(outputs, masks).item()
+                pred_masks    = outputs.argmax(dim=1)
+                val_dice     += compute_dice(pred_masks, masks)
                 val_pixel_acc += (pred_masks == masks).float().mean().item()
 
         val_loss      /= len(val_loader)
         val_dice      /= len(val_loader)
         val_pixel_acc /= len(val_loader)
-
         scheduler.step()
 
         print(f"Epoch [{epoch+1}/{args.epochs}] "
@@ -456,7 +486,7 @@ def train_segmentor(args):
                 'model_state_dict'    : model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'val_dice'            : val_dice,
-            }, 'checkpoints/unet.pth')
+            }, f'checkpoints/unet_{args.freeze_mode}.pth')
             print(f"  Saved best segmentor (val_dice={val_dice:.4f})")
         else:
             no_improve += 1
@@ -488,6 +518,8 @@ def parse_args():
     parser.add_argument('--wandb_project',   type=str,   default='da6401-assignment2')
     parser.add_argument('--resume_classifier', type=str, default='')
     parser.add_argument('--use_bn', type=int, default=1)
+    parser.add_argument('--freeze_mode', type=str, default='full_finetune',
+                    choices=['full_freeze', 'partial_freeze', 'full_finetune'])
     
     return parser.parse_args()
 
