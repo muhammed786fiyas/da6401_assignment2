@@ -70,7 +70,7 @@ def compute_dice(pred_mask, true_mask, num_classes=3):
 def train_classifier(args):
     wandb.init(
         project = args.wandb_project,
-        name    = f"exp-2.2 : dropout={args.dropout_p}"",
+        name    = f"exp-2.2 : dropout={args.dropout_p}",
         config  = vars(args)
     )
 
