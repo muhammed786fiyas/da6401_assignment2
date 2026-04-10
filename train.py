@@ -191,16 +191,6 @@ def train_classifier(args):
             'lr'         : optimizer.param_groups[0]['lr']
         })
 
-        # Always save latest state for seamless continuation after fixed epoch budgets.
-        os.makedirs('checkpoints', exist_ok=True)
-        torch.save({
-            'epoch'               : epoch + 1,
-            'model_state_dict'    : model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict': scheduler.state_dict(),
-            'val_f1'              : val_f1,
-        }, 'checkpoints/classifier_last.pth')
-
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             no_improve  = 0
