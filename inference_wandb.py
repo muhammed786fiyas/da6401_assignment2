@@ -173,9 +173,9 @@ def main():
 
     # ── novel images ──
     novel_images = {
-        'labrador'    : 'novel_pet1.jpg',
-        'tabby_cat'   : 'novel_pet2.jpg',
-        'mixed_breeds': 'novel_pet3.jpg',
+    'chocolate_lab_licking_camera' : 'novel_pet1.jpg',   # chocolate lab licking camera
+    'pug_red_background' : 'novel_pet2.jpg',   # pug with red background
+    'beagle_closeup'     : 'novel_pet3.jpg',   # beagle smiling closeup
     }
 
     # ── W&B table ──
