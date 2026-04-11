@@ -93,13 +93,16 @@ class MultiTaskPerceptionModel(nn.Module):
 
         # Load localizer weights
         if os.path.exists(localizer_path):
-            loc_model = PetLocalizer(dropout_p=0.3)
-            loc_ckpt = torch.load(localizer_path, map_location=device)
-            loc_model.load_state_dict(loc_ckpt['model_state_dict'])
+            loc_ckpt  = torch.load(localizer_path, map_location=device)
+            loc_state = loc_ckpt['model_state_dict']
 
-            self.loc_head.load_state_dict(
-                loc_model.regressor.state_dict(), strict=False
-            )
+            # extract only regressor keys directly from checkpoint
+            loc_head_state = {
+                k.replace('regressor.', ''): v
+                for k, v in loc_state.items()
+                if k.startswith('regressor.')
+            }
+            self.loc_head.load_state_dict(loc_head_state, strict=False)
             print("Localizer weights loaded.")
 
         # Load segmentor weights
